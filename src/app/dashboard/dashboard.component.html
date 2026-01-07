@@ -1,0 +1,88 @@
+<div class="dashboard-container">
+  <header class="header">
+    <h1>🚀 Auditoría JURIDICO</h1>
+    <p class="subtitle">Detectar HUs pendientes de despliegue</p>
+  </header>
+  
+  <section class="control-panel">
+    <div class="control-group">
+      <label>Repositorio</label>
+      <select [(ngModel)]="selectedRepoName" (change)="onRepoChange($any($event.target).value)" [disabled]="loadingStates.repos || loadingStates.analysis">
+        <option value="" disabled>Seleccione...</option>
+        <option *ngFor="let repo of repositories" [value]="repo.name">{{ repo.name }}</option>
+      </select>
+      <span *ngIf="loadingStates.repos" class="loader-mini">⏳</span>
+    </div>
+
+    <div class="control-group branch-flow" *ngIf="selectedRepoName">
+      <div class="branch-select">
+        <label>Origen (Nuevos Cambios)</label>
+        <select [(ngModel)]="sourceBranch" [disabled]="loadingStates.branches">
+          <option *ngFor="let branch of branches" [value]="branch">{{ branch }}</option>
+        </select>
+      </div>
+      
+      <div class="flow-icon">➔</div>
+      
+      <div class="branch-select">
+        <label>Destino (Producción/QA)</label>
+        <select [(ngModel)]="targetBranch" [disabled]="loadingStates.branches">
+          <option *ngFor="let branch of branches" [value]="branch">{{ branch }}</option>
+        </select>
+      </div>
+
+      <button class="btn-analyze" (click)="compareBranches()" 
+              [disabled]="loadingStates.analysis || loadingStates.branches || !sourceBranch || !targetBranch">
+        {{ loadingStates.analysis ? 'Analizando...' : '🔍 Auditar Diferencias' }}
+      </button>
+    </div>
+  </section>
+
+  <div class="alert-error" *ngIf="errorMessage">
+    ⚠️ {{ errorMessage }}
+  </div>
+
+  <section class="results-grid" *ngIf="!loadingStates.analysis && (processedHUs.length > 0 || commitsWithoutHU.length > 0)">
+    
+    <div class="card result-card">
+      <div class="card-header success">
+        <h2>HUs Pendientes ({{ processedHUs.length }})</h2>
+      </div>
+      <div class="card-body">
+        <div *ngFor="let item of processedHUs" class="hu-item">
+          <div class="hu-badge">{{ item.id }}</div>
+          <div class="hu-details">
+          <small>Detectado en {{ item.prs?.length || 0 }} PR(s)</small>
+          
+          <div class="commit-tooltip">
+            <div *ngFor="let pr of item.prs" class="pr-row">
+              <strong>PR #{{ pr.pullRequestId }}:</strong> {{ pr.title }}
+              <br>
+              <span style="font-size: 0.8em; color: #666;">
+                Por: {{ pr.createdBy.displayName }}
+              </span>
+            </div>
+          </div>
+        </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card result-card warning" *ngIf="commitsWithoutHU.length > 0">
+      <div class="card-header warning">
+        <h2>Commits sin HU ({{ commitsWithoutHU.length }})</h2>
+        <small>Atención requerida</small>
+      </div>
+      <ul class="clean-list">
+        <li *ngFor="let commit of commitsWithoutHU">
+          <span class="author">{{ commit.author.name }}</span>
+          <p class="msg">{{ commit.comment }}</p>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <div *ngIf="!loadingStates.analysis && processedHUs.length === 0 && commitsWithoutHU.length === 0 && selectedRepoName && sourceBranch" class="empty-state">
+    ✅ No hay diferencias pendientes o todo está sincronizado.
+  </div>
+</div>
