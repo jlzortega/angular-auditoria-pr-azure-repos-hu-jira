@@ -4,7 +4,6 @@ export const environment = {
         organization: 'Soluciones-Corporativas',
         project: 'Juridico',
         apiVersion: '7.1',
- 
         sss: ''
     },
     // Regex para detectar HUs de JIRA en título/descr (devuelve todas las coincidencias)
