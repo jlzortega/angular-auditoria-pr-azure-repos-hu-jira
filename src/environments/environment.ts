@@ -5,7 +5,7 @@ export const environment = {
         project: 'Juridico',
         apiVersion: '7.1',
         // Personal Access Token (no subir el token real al repo)
-        pat: ''
+        sss: ''
     },
     // Regex para detectar HUs de JIRA en título/descr (devuelve todas las coincidencias)
     // Formato esperado: JURP01-XXXXXX (letras/dígitos después del guion)
