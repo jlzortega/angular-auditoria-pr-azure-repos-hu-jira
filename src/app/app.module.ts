@@ -1,6 +1,7 @@
 import { NgModule } from '@angular/core';
 import { BrowserModule } from '@angular/platform-browser';
 import { FormsModule } from '@angular/forms';
+import { BrowserAnimationsModule } from '@angular/platform-browser/animations';
 
 // 👇 1. IMPORTAR la nueva forma de proveer HTTP
 import { provideHttpClient, withInterceptorsFromDi, HTTP_INTERCEPTORS } from '@angular/common/http';
@@ -16,6 +17,7 @@ import { AuthInterceptor } from './interceptors/auth.interceptors';
   imports: [
     BrowserModule,
     FormsModule,
+    BrowserAnimationsModule,
     DashboardComponent 
   ],
   providers: [

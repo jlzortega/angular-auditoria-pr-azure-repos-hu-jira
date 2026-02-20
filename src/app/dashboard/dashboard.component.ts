@@ -1,12 +1,16 @@
 import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 // 👇 IMPORTACIONES OBLIGATORIAS
 import { CommonModule } from '@angular/common'; 
-import { FormsModule } from '@angular/forms';     
+import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';    
+// Angular Material modules
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatAutocompleteModule } from '@angular/material/autocomplete';
 
 import { AzureDevopsService } from '../services/azure-devops.service';
 import { environment } from '../../environments/environment';
 import { GitRepository, GitCommit, HuResult, AzurePullRequest } from '../models/azure.models';
-import { forkJoin, switchMap, of, finalize, catchError } from 'rxjs';
+import { forkJoin, switchMap, of, finalize, catchError, Subject, map } from 'rxjs';
 
 @Component({
   selector: 'app-dashboard',
@@ -15,7 +19,11 @@ import { forkJoin, switchMap, of, finalize, catchError } from 'rxjs';
   standalone: true, // ✅ Componente autónomo
   imports: [
     CommonModule, // ✅ Soluciona *ngIf, *ngFor y el pipe | slice
-    FormsModule   // ✅ Soluciona [(ngModel)]
+    FormsModule,  // ✅ Soluciona [(ngModel)]
+    ReactiveFormsModule,
+    MatFormFieldModule,
+    MatInputModule,
+    MatAutocompleteModule,
   ]
 })
 export class DashboardComponent implements OnInit {
@@ -23,6 +31,15 @@ export class DashboardComponent implements OnInit {
   // Datos
   repositories: GitRepository[] = [];
   branches: string[] = [];
+  // Autocomplete helpers (Material FormControls)
+  repoControl = new FormControl('');
+  sourceControl = new FormControl('');
+  targetControl = new FormControl('');
+  filteredRepos: GitRepository[] = [];
+  filteredBranchesSource: string[] = [];
+  filteredBranchesTarget: string[] = [];
+  // Theme
+  isDark = false;
   
   // Selección
   selectedRepoName: string = ''; 
@@ -48,6 +65,43 @@ export class DashboardComponent implements OnInit {
 
   ngOnInit() {
     this.loadRepositories();
+
+    // set up reactive listeners for Material autocomplete
+    this.repoControl.valueChanges.subscribe(q => {
+      const term = (q || '').toString().toLowerCase().trim();
+      if (!term) this.filteredRepos = this.repositories.slice(0, 50);
+      else this.filteredRepos = this.repositories.filter(r => r.name.toLowerCase().includes(term)).slice(0, 50);
+    });
+
+    this.sourceControl.valueChanges.subscribe(q => {
+      const term = (q || '').toString().toLowerCase().trim();
+      if (!term) this.filteredBranchesSource = this.branches.slice(0, 50);
+      else this.filteredBranchesSource = this.branches.filter(b => b.toLowerCase().includes(term)).slice(0, 50);
+    });
+
+    this.targetControl.valueChanges.subscribe(q => {
+      const term = (q || '').toString().toLowerCase().trim();
+      if (!term) this.filteredBranchesTarget = this.branches.slice(0, 50);
+      else this.filteredBranchesTarget = this.branches.filter(b => b.toLowerCase().includes(term)).slice(0, 50);
+    });
+
+    // Theme: read preference
+    try {
+      const saved = localStorage.getItem('theme');
+      this.isDark = saved === 'dark';
+    } catch (e) { this.isDark = false; }
+    this.applyTheme();
+  }
+
+  toggleTheme() {
+    this.isDark = !this.isDark;
+    try { localStorage.setItem('theme', this.isDark ? 'dark' : 'light'); } catch (e) {}
+    this.applyTheme();
+  }
+
+  private applyTheme() {
+    if (this.isDark) document.body.classList.add('dark');
+    else document.body.classList.remove('dark');
   }
 
   loadRepositories() {
@@ -55,6 +109,8 @@ export class DashboardComponent implements OnInit {
     this.azureService.getRepositories().subscribe({
       next: (repos) => {
         this.repositories = repos;
+        // inicializar filtros
+          this.filteredRepos = this.repositories.slice(0, 50);
         console.log(repos);
         if (repos.length > 0) {
           const defaultRepo = repos.find(r => r.name === 'Juridico') || repos[0];
@@ -70,6 +126,9 @@ export class DashboardComponent implements OnInit {
 
   onRepoChange(repoName: string) {
     this.selectedRepoName = repoName;
+    // actualizar query y ocultar sugerencias
+    this.repoControl.setValue(repoName, { emitEvent: false });
+    this.filteredRepos = [];
     this.branches = [];
     this.sourceBranch = '';
     this.targetBranch = '';
@@ -78,11 +137,35 @@ export class DashboardComponent implements OnInit {
     this.azureService.getBranches(repoName).subscribe({
       next: (branches) => {
         this.branches = branches;
+        // inicializar sugerencias de ramas
+        this.filteredBranchesSource = this.branches.slice(0, 50);
+        this.filteredBranchesTarget = this.branches.slice(0, 50);
         this.autoSelectBranches(branches);
         this.loadingStates.branches = false;
       },
       error: (err) => this.handleError('Error cargando ramas', err)
     });
+  }
+
+  selectRepo(name: string) {
+    if (!name) return;
+    this.repoControl.setValue(name, { emitEvent: false });
+    this.filteredRepos = [];
+    this.onRepoChange(name);
+  }
+
+  selectSourceBranch(branch: string) {
+    if (!branch) return;
+    this.sourceControl.setValue(branch, { emitEvent: false });
+    this.sourceBranch = branch;
+    this.filteredBranchesSource = [];
+  }
+
+  selectTargetBranch(branch: string) {
+    if (!branch) return;
+    this.targetControl.setValue(branch, { emitEvent: false });
+    this.targetBranch = branch;
+    this.filteredBranchesTarget = [];
   }
 
   autoSelectBranches(branches: string[]) {
@@ -115,15 +198,15 @@ export class DashboardComponent implements OnInit {
       .pipe(
         switchMap((commits: GitCommit[]) => {
           console.log(`2. Diferencia encontrada: ${commits.length} commits.`);
-          
+
           if (commits.length === 0) {
-            return of([]); 
+            return of([]);
           }
 
           // Extraemos IDs
           const commitIds = commits.map(c => c.commitId);
           console.log('3. Consultando PRs para los commits...', commitIds);
-          
+
           // Solicitamos los PRs
           return this.azureService.getPrsByCommitIds(this.selectedRepoName, commitIds);
         }),
@@ -144,7 +227,6 @@ export class DashboardComponent implements OnInit {
         this.analyzePullRequests(prs);
       });
   }
-
   private analyzePullRequests(prs: AzurePullRequest[]) {
     // Si llegó null o undefined
     if (!prs) prs = [];
@@ -156,7 +238,9 @@ export class DashboardComponent implements OnInit {
       const title = pr.title || '';
       const desc = pr.description || '';
       const fullText = (title + ' ' + desc).toUpperCase();
-      
+
+      console.log('PR:', pr.pullRequestId, 'title:', title);
+
       const matches = fullText.match(environment.huRegex);
 
       if (matches) {
@@ -176,8 +260,11 @@ export class DashboardComponent implements OnInit {
       .map(([id, prs]) => ({ id, prs }))
       .sort((a, b) => a.id.localeCompare(b.id));
 
-    console.log('5. HUs procesadas:', this.processedHUs);
-    
+    console.log('HUs procesadas desde PRs:', this.processedHUs);
+
+    // No buscamos HUs en commits — requerimos que las HUs estén en títulos de PRs.
+    this.commitsWithoutHU = [];
+
     // 👈 IMPORTANTE: Volvemos a refrescar la vista por si acaso
     this.cdr.detectChanges(); 
   }

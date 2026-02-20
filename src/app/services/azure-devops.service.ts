@@ -113,4 +113,20 @@ export class AzureDevopsService {
       })
     );
   }
+
+  /**
+   * Obtener PRs que tienen como target una rama específica y estado 'completed'
+   * Usamos este endpoint para saber qué HUs/PRs ya fueron integrados en la rama destino.
+   */
+  getPullRequestsForTarget(repoName: string, targetBranch: string): Observable<AzurePullRequest[]> {
+    // Azure espera refs/heads/{branch} para targetRefName
+    const encodedTarget = encodeURIComponent(`refs/heads/${targetBranch}`);
+    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequests?searchCriteria.status=completed&searchCriteria.targetRefName=${encodedTarget}&${this.apiVersion}`;
+
+    return this.http.get<any>(url).pipe(
+      map(res => res || []),
+      // En caso de que Azure devuelva objeto con value
+      map(res => (res.value && Array.isArray(res.value) ? res.value : res))
+    );
+  }
 }

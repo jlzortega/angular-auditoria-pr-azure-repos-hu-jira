@@ -1,1 +1,48 @@
-/* You can add global styles to this file, and also import other style files */
+/* Angular Material prebuilt theme + global defaults */
+/* Use package path without `~` so the Angular builder can resolve it */
+@import "@angular/material/prebuilt-themes/indigo-pink.css";
+
+/* Coppel palette: light (default) and dark variations */
+:root {
+	/* User-provided base colors */
+	--primary: #006fb9; /* azul Coppel */
+	--complementary: #ffdd35; /* amarillo complementario */
+	--black: #1b1a16;
+
+	/* Derived semantic tokens (light theme) */
+	--bg: #f4f6f8;
+	--surface: #ffffff;
+	--text-primary: var(--black);
+	--muted: #6b7280;
+	--accent: var(--complementary);
+	--warn: #d83b01;
+	--card-shadow: rgba(15,23,42,0.06);
+}
+
+/* Dark theme: apply when <body class="dark"> */
+body.dark {
+	--bg: #0f1720; /* very dark */
+	--surface: #0b1217; /* card surface */
+	--text-primary: #e6eef6; /* light text */
+	--muted: #9aa6b2;
+	--primary: #2aa6ff; /* slightly brighter primary for dark */
+	--accent: #ffd96a; /* softer yellow on dark */
+	--warn: #ff7a50;
+	--card-shadow: rgba(2,6,23,0.6);
+}
+
+html, body {
+	height: 100%;
+	margin: 0;
+}
+body {
+	font-family: 'Segoe UI', Roboto, "Helvetica Neue", Arial, sans-serif;
+	background: var(--bg);
+	color: var(--text-primary);
+	-webkit-font-smoothing: antialiased;
+	-moz-osx-font-smoothing: grayscale;
+}
+
+/* Utility */
+.container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+

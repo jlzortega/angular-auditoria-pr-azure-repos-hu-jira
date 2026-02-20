@@ -1,34 +1,50 @@
 <div class="dashboard-container">
   <header class="header">
-    <h1>🚀 Auditoría JURIDICO</h1>
-    <p class="subtitle">Detectar HUs pendientes de despliegue</p>
+    <div class="header-left">
+      <h1>🚀 Auditoría JURIDICO</h1>
+      <p class="subtitle">Detectar HUs pendientes de despliegue</p>
+    </div>
+    <div class="header-actions">
+      <button class="theme-toggle" (click)="toggleTheme()" aria-label="Toggle theme">
+        <span *ngIf="!isDark">🌙</span>
+        <span *ngIf="isDark">☀️</span>
+      </button>
+    </div>
   </header>
   
   <section class="control-panel">
     <div class="control-group">
       <label>Repositorio</label>
-      <select [(ngModel)]="selectedRepoName" (change)="onRepoChange($any($event.target).value)" [disabled]="loadingStates.repos || loadingStates.analysis">
-        <option value="" disabled>Seleccione...</option>
-        <option *ngFor="let repo of repositories" [value]="repo.name">{{ repo.name }}</option>
-      </select>
+      <mat-form-field appearance="outline" style="width: 350px;">
+        <input matInput placeholder="Escribe para buscar..." [formControl]="repoControl" [matAutocomplete]="autoRepo" [disabled]="loadingStates.repos || loadingStates.analysis" />
+        <mat-autocomplete #autoRepo="matAutocomplete" (optionSelected)="selectRepo($any($event).option.value)">
+          <mat-option *ngFor="let repo of filteredRepos" [value]="repo.name">{{ repo.name }}</mat-option>
+        </mat-autocomplete>
+      </mat-form-field>
       <span *ngIf="loadingStates.repos" class="loader-mini">⏳</span>
     </div>
 
     <div class="control-group branch-flow" *ngIf="selectedRepoName">
       <div class="branch-select">
         <label>Origen (Nuevos Cambios)</label>
-        <select [(ngModel)]="sourceBranch" [disabled]="loadingStates.branches">
-          <option *ngFor="let branch of branches" [value]="branch">{{ branch }}</option>
-        </select>
+        <mat-form-field appearance="outline">
+          <input matInput placeholder="Buscar rama..." [formControl]="sourceControl" [matAutocomplete]="autoSource" [disabled]="loadingStates.branches" />
+          <mat-autocomplete #autoSource="matAutocomplete" (optionSelected)="selectSourceBranch($any($event).option.value)">
+            <mat-option *ngFor="let b of filteredBranchesSource" [value]="b">{{ b }}</mat-option>
+          </mat-autocomplete>
+        </mat-form-field>
       </div>
       
       <div class="flow-icon">➔</div>
       
       <div class="branch-select">
         <label>Destino (Producción/QA)</label>
-        <select [(ngModel)]="targetBranch" [disabled]="loadingStates.branches">
-          <option *ngFor="let branch of branches" [value]="branch">{{ branch }}</option>
-        </select>
+        <mat-form-field appearance="outline">
+          <input matInput placeholder="Buscar rama..." [formControl]="targetControl" [matAutocomplete]="autoTarget" [disabled]="loadingStates.branches" />
+          <mat-autocomplete #autoTarget="matAutocomplete" (optionSelected)="selectTargetBranch($any($event).option.value)">
+            <mat-option *ngFor="let b of filteredBranchesTarget" [value]="b">{{ b }}</mat-option>
+          </mat-autocomplete>
+        </mat-form-field>
       </div>
 
       <button class="btn-analyze" (click)="compareBranches()" 
