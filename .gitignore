@@ -42,4 +42,12 @@ __screenshots__/
 .DS_Store
 Thumbs.db
 proxy.conf.js
+
+# Ignore environment files (may contain secrets like PAT)
+/src/environments/*.ts
+/src/environments/*.js
+/src/environments/*.json
+
+# Keep example envs if needed (uncomment pattern below and add example files)
+# !/src/environments/environment.example.ts
 /src/environments
