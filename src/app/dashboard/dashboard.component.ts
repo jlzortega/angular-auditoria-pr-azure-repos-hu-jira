@@ -262,10 +262,33 @@ export class DashboardComponent implements OnInit {
 
     console.log('HUs procesadas desde PRs:', this.processedHUs);
 
-    // No buscamos HUs en commits — requerimos que las HUs estén en títulos de PRs.
-    this.commitsWithoutHU = [];
+    // Filtrar HUs que YA están integradas en la rama destino (targetBranch)
+    if (this.targetBranch) {
+      this.azureService.getPullRequestsForTarget(this.selectedRepoName, this.targetBranch).subscribe({
+        next: (targetPrs) => {
+          // Construimos un set de HUs que ya aparecen en PRs cuyo target es la rama destino
+          const presentInTarget = new Set<string>();
+          targetPrs.forEach((tpr: AzurePullRequest) => {
+            const text = ((tpr.title || '') + ' ' + (tpr.description || '')).toUpperCase();
+            const matches = text.match(environment.huRegex);
+            if (matches) {
+              matches.forEach(m => presentInTarget.add(m.trim()));
+            }
+          });
 
-    // 👈 IMPORTANTE: Volvemos a refrescar la vista por si acaso
-    this.cdr.detectChanges(); 
+          // Excluir HUs ya presentes en target
+          this.processedHUs = this.processedHUs.filter(h => !presentInTarget.has(h.id));
+          console.log('HUs después de excluir las ya integradas en', this.targetBranch, ':', this.processedHUs);
+          this.cdr.detectChanges();
+        },
+        error: (err) => {
+          console.warn('No se pudo obtener PRs del target para filtrar HUs:', err);
+          this.cdr.detectChanges();
+        }
+      });
+    } else {
+      // Si no hay targetBranch seleccionado, solo refrescamos
+      this.cdr.detectChanges();
+    }
   }
 }
