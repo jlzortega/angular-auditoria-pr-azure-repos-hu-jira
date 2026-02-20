@@ -4,7 +4,7 @@ export const environment = {
         organization: 'Soluciones-Corporativas',
         project: 'Juridico',
         apiVersion: '7.1',
-        // Personal Access Token (no subir el token real al repo)
+ 
         sss: ''
     },
     // Regex para detectar HUs de JIRA en título/descr (devuelve todas las coincidencias)
