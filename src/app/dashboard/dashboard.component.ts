@@ -1,7 +1,7 @@
 import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
 // 👇 IMPORTACIONES OBLIGATORIAS
-import { CommonModule } from '@angular/common'; 
-import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';    
+import { CommonModule } from '@angular/common';
+import { FormsModule, ReactiveFormsModule, FormControl } from '@angular/forms';
 // Angular Material modules
 import { MatFormFieldModule } from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
@@ -27,7 +27,7 @@ import { forkJoin, switchMap, of, finalize, catchError, Subject, map, firstValue
   ]
 })
 export class DashboardComponent implements OnInit {
-  
+
   // Datos
   repositories: GitRepository[] = [];
   branches: string[] = [];
@@ -40,9 +40,9 @@ export class DashboardComponent implements OnInit {
   filteredBranchesTarget: string[] = [];
   // Theme
   isDark = false;
-  
+
   // Selección
-  selectedRepoName: string = ''; 
+  selectedRepoName: string = '';
   selectedRepoId: string = '';
   sourceBranch: string = '';
   targetBranch: string = '';
@@ -64,7 +64,7 @@ export class DashboardComponent implements OnInit {
   lastSelection: { repo?: string; source?: string; target?: string } = {};
   // Strict verification mode: run per-HU searchText verification
   strictMode = false;
-  
+
   // Estados de UI
   loadingStates = {
     repos: true,
@@ -73,10 +73,10 @@ export class DashboardComponent implements OnInit {
   };
   errorMessage = '';
 
- constructor(
+  constructor(
     private azureService: AzureDevopsService,
     private cdr: ChangeDetectorRef // 👈 2. Inyectar
-  ) {}
+  ) { }
 
   ngOnInit() {
     this.loadRepositories();
@@ -114,7 +114,7 @@ export class DashboardComponent implements OnInit {
 
   toggleTheme() {
     this.isDark = !this.isDark;
-    try { localStorage.setItem('theme', this.isDark ? 'dark' : 'light'); } catch (e) {}
+    try { localStorage.setItem('theme', this.isDark ? 'dark' : 'light'); } catch (e) { }
     this.applyTheme();
   }
 
@@ -129,18 +129,24 @@ export class DashboardComponent implements OnInit {
       next: (repos) => {
         this.repositories = repos;
         // inicializar filtros
-          this.filteredRepos = this.repositories.slice(0, 50);
+        this.filteredRepos = this.repositories.slice(0, 50);
         console.log(repos);
         if (repos.length > 0) {
           const defaultRepo = repos.find(r => r.name === 'Juridico') || repos[0];
           this.onRepoChange(defaultRepo.name);
         }
         this.loadingStates.repos = false;
+        this.repoControl.enable();
 
         this.cdr.detectChanges();
       },
-      error: (err) => this.handleError('Error cargando repositorios', err)
+      error: (err) => {
+        this.repoControl.enable();
+        this.handleError('Error cargando repositorios', err);
+      }
     });
+
+    this.repoControl.disable();
   }
 
   async onRepoChange(repoName: string) {
@@ -154,6 +160,8 @@ export class DashboardComponent implements OnInit {
     this.sourceBranch = '';
     this.targetBranch = '';
     this.loadingStates.branches = true;
+    this.sourceControl.disable();
+    this.targetControl.disable();
 
     try {
       const branches = await this.azureService.getBranches(this.selectedRepoId);
@@ -163,9 +171,13 @@ export class DashboardComponent implements OnInit {
       this.filteredBranchesTarget = this.branches.slice(0, 50);
       this.autoSelectBranches(branches);
       this.loadingStates.branches = false;
+      this.sourceControl.enable();
+      this.targetControl.enable();
     } catch (err) {
       this.handleError('Error cargando ramas', err);
       this.loadingStates.branches = false;
+      this.sourceControl.enable();
+      this.targetControl.enable();
     }
   }
 
@@ -187,6 +199,8 @@ export class DashboardComponent implements OnInit {
     this.selectedRepoId = repo.id || repo.name;
     // Load branches for the selected repo id
     this.loadingStates.branches = true;
+    this.sourceControl.disable();
+    this.targetControl.disable();
     try {
       const branches = await this.azureService.getBranches(this.selectedRepoId);
       this.branches = branches;
@@ -194,10 +208,14 @@ export class DashboardComponent implements OnInit {
       this.filteredBranchesTarget = this.branches.slice(0, 50);
       this.autoSelectBranches(branches);
       this.loadingStates.branches = false;
+      this.sourceControl.enable();
+      this.targetControl.enable();
       this.cdr.detectChanges();
     } catch (err) {
       this.handleError('Error cargando ramas', err);
       this.loadingStates.branches = false;
+      this.sourceControl.enable();
+      this.targetControl.enable();
     }
   }
 
@@ -218,7 +236,7 @@ export class DashboardComponent implements OnInit {
   autoSelectBranches(branches: string[]) {
     if (branches.includes('develop')) this.sourceBranch = 'develop';
     else if (branches.includes('main')) this.sourceBranch = 'main';
-    
+
     if (branches.includes('QA')) this.targetBranch = 'QA';
     else if (branches.includes('master')) this.targetBranch = 'master';
   }
@@ -243,7 +261,7 @@ export class DashboardComponent implements OnInit {
     // Usar valores del FormControl para sincronizar con lo que ve el usuario
     const sourceBranch = (this.sourceControl.value || this.sourceBranch || '').toString().trim();
     const targetBranch = (this.targetControl.value || this.targetBranch || '').toString().trim();
-    
+
     if (!this.selectedRepoId || !sourceBranch || !targetBranch) return;
 
     this.loadingStates.analysis = true;
@@ -259,9 +277,9 @@ export class DashboardComponent implements OnInit {
     if (sourceBranch === targetBranch) {
       this.handleError('La rama origen y la rama destino son iguales. Selecciona ramas distintas.', null);
       this.loadingStates.analysis = false;
-      return;sourceBranch, 'target:', targetBranch);
+      return;
+    }
 
-    this.azureService.getCommitsDiff(repoIdentifier, sourceBranch, 
     // Sincronizar variables
     this.sourceBranch = sourceBranch;
     this.targetBranch = targetBranch;
@@ -293,11 +311,11 @@ export class DashboardComponent implements OnInit {
           const commitIds = commits.map(c => c.commitId);
           this.lastCommitIds = commitIds;
 
-          // Obtener PRs asociados a esos commits (fallback aggregator) y los detalles de commits
-          return forkJoin({
-            prs: this.azureService.getPrsForCommitIdsFallback(this.selectedRepoId, commitIds).pipe(catchError(() => of([] as AzurePullRequest[]))),
-            commitDetails: commitIds.length ? forkJoin(commitIds.map(id => this.azureService.getCommitDetail(this.selectedRepoId, id)).map(obs => obs.pipe(catchError(() => of(null))))) : of([])
-          }).pipe(map(res => ({ commits, commitIds, prs: res.prs || [], commitDetails: res.commitDetails || [] })));
+          // Obtener PRs asociados a esos commits (batch query)
+          return this.azureService.getPrsByCommitIds(this.selectedRepoId, commitIds).pipe(
+            map(prs => ({ commits, commitIds, prs: prs || [] })),
+            catchError(() => of({ commits, commitIds, prs: [] as AzurePullRequest[] }))
+          );
         }),
         finalize(() => {
           console.log('🏁 Finalizando proceso (quitando loader).');
@@ -314,7 +332,6 @@ export class DashboardComponent implements OnInit {
         const commits: GitCommit[] = payload.commits || [];
         const commitIds: string[] = payload.commitIds || [];
         const prs: AzurePullRequest[] = payload.prs || [];
-        const commitDetails: (GitCommit | null)[] = payload.commitDetails || [];
         const sourceBranchLocal = payload.sourceBranch || sourceBranch;
         const targetBranchLocal = payload.targetBranch || targetBranch;
 
@@ -347,10 +364,10 @@ export class DashboardComponent implements OnInit {
           }
         });
 
-        // Mensajes de commits: extraer HUs
-        (commitDetails || []).forEach(cd => {
-          if (!cd) return;
-          const text = (cd.comment || '').toUpperCase();
+        // Mensajes de commits: extraer HUs (disponibles en la lista original de commits)
+        (commits || []).forEach(c => {
+          if (!c) return;
+          const text = (c.comment || '').toUpperCase();
           const matches = this.getHuMatchesFromText(text);
           if (matches && matches.length) matches.forEach(m => sourceHus.add(m));
         });
@@ -381,30 +398,30 @@ export class DashboardComponent implements OnInit {
           console.log('HUs encontradas en TARGET (master):', Array.from(targetHus));
 
           // Diferencia: sourceHus - targetHus
-            let finalHus = Array.from(sourceHus).filter(h => !targetHus.has(h));
+          let finalHus = Array.from(sourceHus).filter(h => !targetHus.has(h));
 
-            // Si estamos en modo strict, por cada HU hacemos una búsqueda por texto para confirmar
-            if (this.strictMode && finalHus.length) {
-              try {
-                const confirmations = await Promise.all(finalHus.map(async (hu) => {
-                  try {
-                    const prsMatch: AzurePullRequest[] = await firstValueFrom(this.azureService.getPrsBySearchText(this.selectedRepoId, hu).pipe(catchError(() => of([] as AzurePullRequest[]))));
-                    // Considerar PRs que ya fueron completados hacia target
-                    const foundInTarget = (prsMatch || []).some(p => {
-                      const target = (p.targetRefName || '').replace('refs/heads/', '');
-                      const status = (p as any).status || (p as any).state || '';
-                      const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';
-                      return (target === targetBranchLocal || isCompleted) && ((p.title || '') + ' ' + (p.description || '')).toUpperCase().includes(hu);
-                    });
-                    return { hu, foundInTarget };
-                  } catch (e) { return { hu, foundInTarget: false }; }
-                }));
-                // Excluir las HUs confirmadas en target
-                finalHus = finalHus.filter(h => !confirmations.find(c => c.hu === h && c.foundInTarget));
-              } catch (e) {
-                console.warn('Strict verification failed, continuing with non-strict result', e);
-              }
+          // Si estamos en modo strict, por cada HU hacemos una búsqueda por texto para confirmar
+          if (this.strictMode && finalHus.length) {
+            try {
+              const confirmations = await Promise.all(finalHus.map(async (hu) => {
+                try {
+                  const prsMatch: AzurePullRequest[] = await firstValueFrom(this.azureService.getPrsBySearchText(this.selectedRepoId, hu).pipe(catchError(() => of([] as AzurePullRequest[]))));
+                  // Considerar PRs que ya fueron completados hacia target
+                  const foundInTarget = (prsMatch || []).some(p => {
+                    const target = (p.targetRefName || '').replace('refs/heads/', '');
+                    const status = (p as any).status || (p as any).state || '';
+                    const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';
+                    return (target === targetBranchLocal || isCompleted) && ((p.title || '') + ' ' + (p.description || '')).toUpperCase().includes(hu);
+                  });
+                  return { hu, foundInTarget };
+                } catch (e) { return { hu, foundInTarget: false }; }
+              }));
+              // Excluir las HUs confirmadas en target
+              finalHus = finalHus.filter(h => !confirmations.find(c => c.hu === h && c.foundInTarget));
+            } catch (e) {
+              console.warn('Strict verification failed, continuing with non-strict result', e);
             }
+          }
 
           // Mapear a processedHUs con PRs que las contienen (filtrando prs anteriores)
           const huMap = new Map<string, AzurePullRequest[]>();
@@ -449,7 +466,7 @@ export class DashboardComponent implements OnInit {
     prs = prs.filter(pr => {
       if (!pr) return false;
       const target = (pr.targetRefName || '').toLowerCase();
-      const sourceLower = (sourceBranchLocal || '').toLowerCase();
+      const sourceLower = (this.sourceBranch || '').toLowerCase();
       const matchesTarget = target.endsWith('/' + sourceLower) || target === `refs/heads/${sourceLower}` || target.endsWith(sourceLower);
       const status = (pr as any).status || (pr as any).state || '';
       const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';

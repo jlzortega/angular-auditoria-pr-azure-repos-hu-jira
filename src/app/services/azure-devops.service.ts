@@ -12,7 +12,7 @@ export class AzureDevopsService {
   private apiUrl: string = (() => {
     const org = environment.azure.organization;
     const proj = environment.azure.project;
-    return `https://dev.azure.com/${org}/${proj}/_apis/git/repositories`;
+    return `/${org}/${proj}/_apis/git/repositories`;
   })();
   private apiVersion = `api-version=${environment.azure.apiVersion}`;
 
@@ -35,7 +35,7 @@ export class AzureDevopsService {
   async resolveRepositoryId(identifier: string): Promise<{ id: string; name: string }> {
     try {
       if (!identifier) throw new Error('Empty repository identifier');
-      
+
       const repos = await this.http.get<any>(`${this.apiUrl}?${this.apiVersion}`).toPromise() as any;
       const repoList = repos?.value || [];
 
@@ -118,7 +118,7 @@ export class AzureDevopsService {
       const resolved = await this.resolveRepositoryId(repoIdentifier);
       const url = `${this.apiUrl}/${encodeURIComponent(resolved.id)}/refs?filter=heads/&${this.apiVersion}`;
       console.log(`🌿 Fetching branches for repo ${resolved.name} using ID: ${resolved.id}`);
-      
+
       const res: any = await this.http.get<any>(url).toPromise();
       const branches = (res?.value || []).map((ref: any) => ref.name.replace('refs/heads/', ''));
       console.log(`✅ Loaded ${branches.length} branches`);
@@ -138,60 +138,33 @@ export class AzureDevopsService {
    * luego usa el ID GUID para el commitsBatch endpoint.
    */
   getCommitsDiff(repoIdentifier: string, sourceBranch: string, targetBranch: string): Observable<GitCommit[]> {
-    const body = {
-      "$top": 200,
-      "itemVersion": { "version": `refs/heads/${sourceBranch}`, "versionType": 0 },
-      "compareVersion": { "version": `refs/heads/${targetBranch}`, "versionType": 0 },
-      "includeComment": true
-    };
+    // The most efficient way to get branch differences in Azure DevOps is the "diffs/commits" endpoint.
+    // It's a GET request that returns exactly what's in 'targetVersion' (source) but not in 'baseVersion' (target).
 
-    const urlFor = (repoId: string) => `${this.apiUrl}/${encodeURIComponent(repoId)}/commitsBatch?${this.apiVersion}`;
-
-    // First, resolve the repository identifier to get the GUID ID
     return from(this.resolveRepositoryId(repoIdentifier)).pipe(
       switchMap((resolved) => {
-        console.log(`📍 Using repository ID for commitsBatch: ${resolved.id} (${resolved.name})`);
-        console.log('📤 commitsBatch request URL:', urlFor(resolved.id));
-        console.log('📋 commitsBatch request body:', JSON.stringify(body).substring(0, 200) + '...');
-        
-        return this.http.post<any>(urlFor(resolved.id), body).pipe(
+        const org = environment.azure.organization;
+        const proj = environment.azure.project;
+
+        // Construct the URL using the project and repository ID
+        const url = `/${org}/${proj}/_apis/git/repositories/${resolved.id}/diffs/commits` +
+          `?baseVersion=${encodeURIComponent(targetBranch)}&baseVersionType=branch` +
+          `&targetVersion=${encodeURIComponent(sourceBranch)}&targetVersionType=branch` +
+          `&api-version=7.1`;
+
+        console.log(`🔍 Comparing branches using diffs API: ${targetBranch} vs ${sourceBranch}`);
+        console.log(`📤 Diff request URL: ${url}`);
+
+        return this.http.get<any>(url).pipe(
           map(res => {
-            console.log('✅ commitsBatch succeeded, received', (res?.value?.length || 0), 'commits');
-            return res.value;
+            const commits = res?.changes || [];
+            console.log(`✅ Diff API succeeded, found ${commits.length} commits`);
+            // The diff API returns a list of changes, we need to extract the commit objects
+            return commits.map((change: any) => change.item || change).filter((item: any) => item && item.commitId);
           }),
           catchError((err: any) => {
-            console.error('❌ commitsBatch failed with ID:', err?.status, err?.statusText);
-            // If commitsBatch fails with ID, try with the repository name as fallback
-            if (resolved.name !== repoIdentifier) {
-              console.log('🔄 Retrying commitsBatch with repository name:', resolved.name);
-              return this.http.post<any>(urlFor(resolved.name), body).pipe(
-                map(res => {
-                  console.log('✅ commitsBatch retry with name succeeded');
-                  return res.value;
-                }),
-                catchError((err2: any) => {
-                  console.error('❌ commitsBatch retry with name also failed:', err2?.status);
-                  // If both ID and name fail, fallback to local diff calculation
-                  console.log('🔄 Falling back to local diff calculation...');
-                  return forkJoin([
-                    this.getCommitsForBranch(resolved.id, sourceBranch, 1000).pipe(catchError(() => of([] as GitCommit[]))),
-                    this.getCommitsForBranch(resolved.id, targetBranch, 1000).pipe(catchError(() => of([] as GitCommit[])))
-                  ]).pipe(
-                    map(([srcCommits, tgtCommits]) => {
-                      const targetSet = new Set((tgtCommits || []).map((c: any) => c.commitId));
-                      const diff = (srcCommits || []).filter((c: any) => !targetSet.has(c.commitId));
-                      console.log(`✅ Local diff fallback produced ${diff.length} commits`);
-                      return diff;
-                    }),
-                    catchError((errFallback: any) => {
-                      console.error('❌ Local diff fallback failed:', errFallback?.status);
-                      return throwError(() => errFallback);
-                    })
-                  );
-                })
-              );
-            }
-            // If only commitsBatch with ID failed (no name to retry), fallback to local diff
+            console.error('❌ Diff API failed:', err?.status, err?.statusText);
+            // Final fallback to local diff if even the specialized API fails
             console.log('🔄 Falling back to local diff calculation...');
             return forkJoin([
               this.getCommitsForBranch(resolved.id, sourceBranch, 1000).pipe(catchError(() => of([] as GitCommit[]))),
@@ -202,18 +175,10 @@ export class AzureDevopsService {
                 const diff = (srcCommits || []).filter((c: any) => !targetSet.has(c.commitId));
                 console.log(`✅ Local diff fallback produced ${diff.length} commits`);
                 return diff;
-              }),
-              catchError((errFallback: any) => {
-                console.error('❌ Local diff fallback failed:', errFallback?.status);
-                return throwError(() => err);
               })
             );
           })
         );
-      }),
-      catchError((resolveErr: any) => {
-        console.error('❌ Failed to resolve repository:', resolveErr?.message);
-        return throwError(() => resolveErr);
       })
     );
   }
@@ -243,13 +208,16 @@ export class AzureDevopsService {
    * Endpoint: /_apis/git/repositories/{repoId}/pullrequestquery
    */
   getPrsByCommitIds(repoName: string, commitIds: string[]): Observable<AzurePullRequest[]> {
-    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequestquery?${this.apiVersion}`;
+    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(repoName);
+    const org = environment.azure.organization;
+    const baseApi = isGuid ? `/${org}/_apis/git/repositories` : this.apiUrl;
+    const url = `${baseApi}/${encodeURIComponent(repoName)}/pullRequestQuery?${this.apiVersion}`;
 
     const body = {
       "queries": [
         {
           "type": 1, // 1 = LastMergeCommit
-          "items": commitIds 
+          "items": commitIds
         }
       ]
     };
@@ -264,7 +232,7 @@ export class AzureDevopsService {
         }
 
         let allPrs: AzurePullRequest[] = [];
-        
+
         // El JSON de Azure devuelve un array de objetos. Generalmente es el índice 0.
         // Ejemplo: response.results[0] = { "commitHash1": [PR], "commitHash2": [PR] }
         const resultsBatch = response.results;
@@ -276,7 +244,7 @@ export class AzureDevopsService {
           // Extraemos todos los valores del diccionario (ignoramos las llaves/hashes)
           // Object.values devuelve: [ [PR1], [PR2], [PR3] ]
           const arraysOfPrs = Object.values(resultDictionary);
-          
+
           arraysOfPrs.forEach((prArray: any) => {
             if (Array.isArray(prArray)) {
               allPrs = [...allPrs, ...prArray];
@@ -291,7 +259,7 @@ export class AzureDevopsService {
             uniquePrs.set(pr.pullRequestId, pr);
           }
         });
-        
+
         const finalResult = Array.from(uniquePrs.values());
         console.log(`✅ Procesamiento finalizado: ${finalResult.length} PRs únicos encontrados.`);
         return finalResult;
@@ -319,7 +287,7 @@ export class AzureDevopsService {
    * Obtener PRs asociados a un commit (endpoint por commit)
    */
   getPrsForCommit(repoName: string, commitId: string): Observable<AzurePullRequest[]> {
-    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/commits/${commitId}/pullRequests?${this.apiVersion}`;
+    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/commits/${commitId}/pullrequests?${this.apiVersion}`;
     return this.http.get<any>(url).pipe(
       map(res => res || []),
       map(res => (res.value && Array.isArray(res.value) ? res.value : res))

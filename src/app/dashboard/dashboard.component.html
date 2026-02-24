@@ -16,7 +16,7 @@
     <div class="control-group">
       <label>Repositorio</label>
       <mat-form-field appearance="outline" style="width: 350px;">
-        <input matInput placeholder="Escribe para buscar..." [formControl]="repoControl" [matAutocomplete]="autoRepo" [disabled]="loadingStates.repos || loadingStates.analysis" />
+        <input matInput placeholder="Escribe para buscar..." [formControl]="repoControl" [matAutocomplete]="autoRepo" />
           <mat-autocomplete #autoRepo="matAutocomplete" (optionSelected)="selectRepo($any($event).option.value)">
             <mat-option *ngFor="let repo of filteredRepos" [value]="repo">{{ repo.name }}</mat-option>
           </mat-autocomplete>
@@ -28,7 +28,7 @@
       <div class="branch-select">
         <label>Origen (Nuevos Cambios)</label>
         <mat-form-field appearance="outline">
-          <input matInput placeholder="Buscar rama..." [formControl]="sourceControl" [matAutocomplete]="autoSource" [disabled]="loadingStates.branches" />
+          <input matInput placeholder="Buscar rama..." [formControl]="sourceControl" [matAutocomplete]="autoSource" />
           <mat-autocomplete #autoSource="matAutocomplete" (optionSelected)="selectSourceBranch($any($event).option.value)">
             <mat-option *ngFor="let b of filteredBranchesSource" [value]="b">{{ b }}</mat-option>
           </mat-autocomplete>
@@ -40,7 +40,7 @@
       <div class="branch-select">
         <label>Destino (Producción/QA)</label>
         <mat-form-field appearance="outline">
-          <input matInput placeholder="Buscar rama..." [formControl]="targetControl" [matAutocomplete]="autoTarget" [disabled]="loadingStates.branches" />
+          <input matInput placeholder="Buscar rama..." [formControl]="targetControl" [matAutocomplete]="autoTarget" />
           <mat-autocomplete #autoTarget="matAutocomplete" (optionSelected)="selectTargetBranch($any($event).option.value)">
             <mat-option *ngFor="let b of filteredBranchesTarget" [value]="b">{{ b }}</mat-option>
           </mat-autocomplete>
