@@ -42,6 +42,12 @@ mat-form-field { width: 100%; }
 .alert-error { background: #fff4f4; color: #a80000; padding: 12px; border-radius: 6px; margin-top: 20px; border: 1px solid #ffd6d9; }
 .empty-state { text-align: center; margin-top: 28px; color: var(--accent); font-size: 1.05rem; }
 
+.diagnostics { margin-top: 14px; }
+.btn-diagnostics { background: transparent; border: 1px dashed var(--muted); padding: 6px 10px; border-radius: 6px; cursor: pointer; color: var(--muted); }
+.diag-panel { margin-top: 10px; padding: 12px; border-radius: 8px; background: rgba(0,0,0,0.03); font-size: 0.95rem; }
+.diag-panel h3 { margin: 0 0 8px 0; }
+.diag-panel ul { margin: 6px 0 12px 18px; }
+
 /* Responsive tweaks */
 @media (max-width: 900px) {
 	.results-grid { grid-template-columns: 1fr; }

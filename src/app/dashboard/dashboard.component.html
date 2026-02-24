@@ -17,9 +17,9 @@
       <label>Repositorio</label>
       <mat-form-field appearance="outline" style="width: 350px;">
         <input matInput placeholder="Escribe para buscar..." [formControl]="repoControl" [matAutocomplete]="autoRepo" [disabled]="loadingStates.repos || loadingStates.analysis" />
-        <mat-autocomplete #autoRepo="matAutocomplete" (optionSelected)="selectRepo($any($event).option.value)">
-          <mat-option *ngFor="let repo of filteredRepos" [value]="repo.name">{{ repo.name }}</mat-option>
-        </mat-autocomplete>
+          <mat-autocomplete #autoRepo="matAutocomplete" (optionSelected)="selectRepo($any($event).option.value)">
+            <mat-option *ngFor="let repo of filteredRepos" [value]="repo">{{ repo.name }}</mat-option>
+          </mat-autocomplete>
       </mat-form-field>
       <span *ngIf="loadingStates.repos" class="loader-mini">⏳</span>
     </div>
@@ -51,6 +51,68 @@
               [disabled]="loadingStates.analysis || loadingStates.branches || !sourceBranch || !targetBranch">
         {{ loadingStates.analysis ? 'Analizando...' : '🔍 Auditar Diferencias' }}
       </button>
+      <label style="margin-left:12px; display:inline-flex; align-items:center"> 
+        <input type="checkbox" [(ngModel)]="strictMode" style="margin-right:6px;" /> Strict mode
+      </label>
+    </div>
+  </section>
+
+  <section class="diagnostics">
+    <button class="btn-diagnostics" (click)="showDiagnostics = !showDiagnostics">
+      {{ showDiagnostics ? 'Ocultar diagnóstico' : 'Mostrar diagnóstico' }}
+    </button>
+
+    <div *ngIf="showDiagnostics" class="diag-panel">
+      <h3>Diagnóstico</h3>
+      <div>
+        <strong>Regex HU:</strong> {{ env.huRegex.toString() }}
+      </div>
+      <div>
+        <strong>Commits consultados (IDs):</strong>
+        <ul>
+          <li *ngFor="let id of lastCommitIds">{{ id }}</li>
+        </ul>
+      </div>
+      <div *ngIf="lastSourceCommits && lastSourceCommits.length>0">
+        <strong>Commits en source (muestra 20):</strong>
+        <ul>
+          <li *ngFor="let c of lastSourceCommits | slice:0:20">{{ c.commitId }} — {{ c.comment }}</li>
+        </ul>
+      </div>
+      <div *ngIf="lastTargetCommits && lastTargetCommits.length>0">
+        <strong>Commits en target (muestra 20):</strong>
+        <ul>
+          <li *ngFor="let c of lastTargetCommits | slice:0:20">{{ c.commitId }} — {{ c.comment }}</li>
+        </ul>
+      </div>
+      <div *ngIf="lastSelection.repo">
+        <strong>Selección:</strong> Repo={{ lastSelection.repo }}, Source={{ lastSelection.source }}, Target={{ lastSelection.target }}
+      </div>
+      <div>
+        <strong>PRs devueltos por commits:</strong>
+        <ul>
+          <li *ngFor="let pr of lastPrsReturned">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName }})</li>
+        </ul>
+      </div>
+      <div>
+        <strong>PRs completados en target ({{ targetBranch }}):</strong>
+        <ul>
+          <li *ngFor="let pr of lastTargetPrs">#{{ pr.pullRequestId }} — {{ pr.title }}</li>
+        </ul>
+      </div>
+      <div *ngIf="lastSourceBranchPrs && lastSourceBranchPrs.length > 0">
+        <strong>PRs encontrados por source branch ({{ sourceBranch }}):</strong>
+        <ul>
+          <li *ngFor="let pr of lastSourceBranchPrs">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName }})</li>
+        </ul>
+      </div>
+      <div *ngIf="lastAllPrs && lastAllPrs.length > 0">
+        <strong>PRs obtenidos al consultar todo el repo:</strong>
+        <ul>
+          <li *ngFor="let pr of lastAllPrs | slice:0:50">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName }})</li>
+        </ul>
+        <div *ngIf="lastAllPrs.length > 50">... mostrando 50 de {{ lastAllPrs.length }} resultados</div>
+      </div>
     </div>
   </section>
 

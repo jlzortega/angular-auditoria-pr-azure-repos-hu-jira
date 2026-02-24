@@ -37,6 +37,7 @@ export interface AzurePullRequest {
   createdBy: {
     displayName: string;
   };
+  status?: string; // e.g. 'completed', 'active'
 }
 
 export interface PrQueryResponse {
