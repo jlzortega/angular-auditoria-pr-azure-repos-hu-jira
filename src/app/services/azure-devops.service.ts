@@ -157,10 +157,9 @@ export class AzureDevopsService {
 
         return this.http.get<any>(url).pipe(
           map(res => {
-            const commits = res?.changes || [];
+            const commits = res?.commits || [];
             console.log(`✅ Diff API succeeded, found ${commits.length} commits`);
-            // The diff API returns a list of changes, we need to extract the commit objects
-            return commits.map((change: any) => change.item || change).filter((item: any) => item && item.commitId);
+            return commits.filter((c: any) => c && c.commitId);
           }),
           catchError((err: any) => {
             console.error('❌ Diff API failed:', err?.status, err?.statusText);
@@ -208,61 +207,61 @@ export class AzureDevopsService {
    * Endpoint: /_apis/git/repositories/{repoId}/pullrequestquery
    */
   getPrsByCommitIds(repoName: string, commitIds: string[]): Observable<AzurePullRequest[]> {
-    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(repoName);
+    if (!commitIds || commitIds.length === 0) return of([]);
+
     const org = environment.azure.organization;
+    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(repoName);
     const baseApi = isGuid ? `/${org}/_apis/git/repositories` : this.apiUrl;
     const url = `${baseApi}/${encodeURIComponent(repoName)}/pullRequestQuery?${this.apiVersion}`;
 
-    const body = {
-      "queries": [
-        {
-          "type": 1, // 1 = LastMergeCommit
-          "items": commitIds
-        }
-      ]
-    };
+    // Chunk commits to avoid Azure API limits or timeouts (batch of 25 is safe)
+    const chunkSize = 25;
+    const chunks: string[][] = [];
+    for (let i = 0; i < commitIds.length; i += chunkSize) {
+      chunks.push(commitIds.slice(i, i + chunkSize));
+    }
 
-    return this.http.post<any>(url, body).pipe(
-      map(response => {
-        // 🛡️ BLOQUE DE SEGURIDAD
-        // Si la respuesta viene vacía o sin resultados, devolvemos array vacío para no romper
-        if (!response || !response.results || response.results.length === 0) {
-          console.warn('⚠️ Azure respondió 200 pero sin resultados de PRs.');
-          return [];
-        }
+    console.log(`🔍 Consultando PRs en ${chunks.length} lotes para ${commitIds.length} commits...`);
 
-        let allPrs: AzurePullRequest[] = [];
+    const requests = chunks.map(batch => {
+      const body = {
+        "queries": [
+          {
+            "type": 2, // 2 = Commit
+            "items": batch
+          }
+        ]
+      };
+      return this.http.post<any>(url, body).pipe(
+        map(response => {
+          if (!response || !response.results || response.results.length === 0) return [];
 
-        // El JSON de Azure devuelve un array de objetos. Generalmente es el índice 0.
-        // Ejemplo: response.results[0] = { "commitHash1": [PR], "commitHash2": [PR] }
-        const resultsBatch = response.results;
-
-        // Iteramos por cada bloque de resultados (por si Azure devuelve más de uno)
-        resultsBatch.forEach((resultDictionary: any) => {
-          if (!resultDictionary) return;
-
-          // Extraemos todos los valores del diccionario (ignoramos las llaves/hashes)
-          // Object.values devuelve: [ [PR1], [PR2], [PR3] ]
-          const arraysOfPrs = Object.values(resultDictionary);
-
-          arraysOfPrs.forEach((prArray: any) => {
-            if (Array.isArray(prArray)) {
-              allPrs = [...allPrs, ...prArray];
-            }
+          let batchPrs: AzurePullRequest[] = [];
+          response.results.forEach((dict: any) => {
+            if (!dict) return;
+            Object.values(dict).forEach((arr: any) => {
+              if (Array.isArray(arr)) batchPrs.push(...arr);
+            });
           });
-        });
+          return batchPrs;
+        }),
+        catchError(err => {
+          console.warn('⚠️ Error en lote de PRs:', err);
+          return of([]);
+        })
+      );
+    });
 
-        // Eliminar duplicados usando un Map por ID de PR
+    return forkJoin(requests).pipe(
+      map(results => {
+        const allPrs = results.flat();
         const uniquePrs = new Map<number, AzurePullRequest>();
         allPrs.forEach(pr => {
-          if (pr && pr.pullRequestId) {
-            uniquePrs.set(pr.pullRequestId, pr);
-          }
+          if (pr && pr.pullRequestId) uniquePrs.set(pr.pullRequestId, pr);
         });
-
-        const finalResult = Array.from(uniquePrs.values());
-        console.log(`✅ Procesamiento finalizado: ${finalResult.length} PRs únicos encontrados.`);
-        return finalResult;
+        const finalContent = Array.from(uniquePrs.values());
+        console.log(`✅ Consulta de PRs completada. Total: ${finalContent.length} PRs únicos.`);
+        return finalContent;
       })
     );
   }
@@ -271,14 +270,13 @@ export class AzureDevopsService {
    * Obtener PRs que tienen como target una rama específica y estado 'completed'
    * Usamos este endpoint para saber qué HUs/PRs ya fueron integrados en la rama destino.
    */
-  getPullRequestsForTarget(repoName: string, targetBranch: string): Observable<AzurePullRequest[]> {
+  getPullRequestsForTarget(repoName: string, targetBranch: string, top: number = 1000): Observable<AzurePullRequest[]> {
     // Azure espera refs/heads/{branch} para targetRefName
     const encodedTarget = encodeURIComponent(`refs/heads/${targetBranch}`);
-    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequests?searchCriteria.status=completed&searchCriteria.targetRefName=${encodedTarget}&${this.apiVersion}`;
+    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequests?searchCriteria.status=completed&searchCriteria.targetRefName=${encodedTarget}&$top=${top}&${this.apiVersion}`;
 
     return this.http.get<any>(url).pipe(
       map(res => res || []),
-      // En caso de que Azure devuelva objeto con value
       map(res => (res.value && Array.isArray(res.value) ? res.value : res))
     );
   }
@@ -338,8 +336,8 @@ export class AzureDevopsService {
   /**
    * Obtener todos los PRs del repositorio (estado = all). Útil como último recurso diagnósticoy de búsqueda.
    */
-  getAllPullRequests(repoName: string): Observable<AzurePullRequest[]> {
-    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequests?searchCriteria.status=all&${this.apiVersion}`;
+  getAllPullRequests(repoName: string, top: number = 200): Observable<AzurePullRequest[]> {
+    const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequests?searchCriteria.status=all&$top=${top}&${this.apiVersion}`;
     return this.http.get<any>(url).pipe(
       map(res => res || []),
       map(res => (res.value && Array.isArray(res.value) ? res.value : res))

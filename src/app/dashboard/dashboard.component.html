@@ -11,15 +11,15 @@
       </button>
     </div>
   </header>
-  
+
   <section class="control-panel">
     <div class="control-group">
       <label>Repositorio</label>
       <mat-form-field appearance="outline" style="width: 350px;">
         <input matInput placeholder="Escribe para buscar..." [formControl]="repoControl" [matAutocomplete]="autoRepo" />
-          <mat-autocomplete #autoRepo="matAutocomplete" (optionSelected)="selectRepo($any($event).option.value)">
-            <mat-option *ngFor="let repo of filteredRepos" [value]="repo">{{ repo.name }}</mat-option>
-          </mat-autocomplete>
+        <mat-autocomplete #autoRepo="matAutocomplete" (optionSelected)="selectRepo($any($event).option.value)">
+          <mat-option *ngFor="let repo of filteredRepos" [value]="repo">{{ repo.name }}</mat-option>
+        </mat-autocomplete>
       </mat-form-field>
       <span *ngIf="loadingStates.repos" class="loader-mini">⏳</span>
     </div>
@@ -29,29 +29,31 @@
         <label>Origen (Nuevos Cambios)</label>
         <mat-form-field appearance="outline">
           <input matInput placeholder="Buscar rama..." [formControl]="sourceControl" [matAutocomplete]="autoSource" />
-          <mat-autocomplete #autoSource="matAutocomplete" (optionSelected)="selectSourceBranch($any($event).option.value)">
+          <mat-autocomplete #autoSource="matAutocomplete"
+            (optionSelected)="selectSourceBranch($any($event).option.value)">
             <mat-option *ngFor="let b of filteredBranchesSource" [value]="b">{{ b }}</mat-option>
           </mat-autocomplete>
         </mat-form-field>
       </div>
-      
+
       <div class="flow-icon">➔</div>
-      
+
       <div class="branch-select">
         <label>Destino (Producción/QA)</label>
         <mat-form-field appearance="outline">
           <input matInput placeholder="Buscar rama..." [formControl]="targetControl" [matAutocomplete]="autoTarget" />
-          <mat-autocomplete #autoTarget="matAutocomplete" (optionSelected)="selectTargetBranch($any($event).option.value)">
+          <mat-autocomplete #autoTarget="matAutocomplete"
+            (optionSelected)="selectTargetBranch($any($event).option.value)">
             <mat-option *ngFor="let b of filteredBranchesTarget" [value]="b">{{ b }}</mat-option>
           </mat-autocomplete>
         </mat-form-field>
       </div>
 
-      <button class="btn-analyze" (click)="compareBranches()" 
-              [disabled]="loadingStates.analysis || loadingStates.branches || !sourceBranch || !targetBranch">
+      <button class="btn-analyze" (click)="compareBranches()"
+        [disabled]="loadingStates.analysis || loadingStates.branches || !sourceBranch || !targetBranch">
         {{ loadingStates.analysis ? 'Analizando...' : '🔍 Auditar Diferencias' }}
       </button>
-      <label style="margin-left:12px; display:inline-flex; align-items:center"> 
+      <label style="margin-left:12px; display:inline-flex; align-items:center">
         <input type="checkbox" [(ngModel)]="strictMode" style="margin-right:6px;" /> Strict mode
       </label>
     </div>
@@ -85,13 +87,28 @@
           <li *ngFor="let c of lastTargetCommits | slice:0:20">{{ c.commitId }} — {{ c.comment }}</li>
         </ul>
       </div>
+      <div style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 4px;">
+        <strong>HUs detectadas en ORIGEN ({{ sourceHusList.length }}):</strong>
+        <div style="font-family: monospace; font-size: 0.9em;">
+          {{ sourceHusList.join(', ') || 'Ninguna' }}
+        </div>
+      </div>
+      <div style="margin-top: 10px; padding: 10px; background: rgba(0,0,0,0.05); border-radius: 4px;">
+        <strong>HUs ya presentes en DESTINO ({{ targetHusList.length }}):</strong>
+        <div style="font-family: monospace; font-size: 0.9em; color: #888;">
+          {{ targetHusList.join(', ') || 'Ninguna' }}
+        </div>
+      </div>
+
       <div *ngIf="lastSelection.repo">
-        <strong>Selección:</strong> Repo={{ lastSelection.repo }}, Source={{ lastSelection.source }}, Target={{ lastSelection.target }}
+        <strong>Selección:</strong> Repo={{ lastSelection.repo }}, Source={{ lastSelection.source }}, Target={{
+        lastSelection.target }}
       </div>
       <div>
         <strong>PRs devueltos por commits:</strong>
         <ul>
-          <li *ngFor="let pr of lastPrsReturned">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName }})</li>
+          <li *ngFor="let pr of lastPrsReturned">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName
+            }})</li>
         </ul>
       </div>
       <div>
@@ -103,13 +120,15 @@
       <div *ngIf="lastSourceBranchPrs && lastSourceBranchPrs.length > 0">
         <strong>PRs encontrados por source branch ({{ sourceBranch }}):</strong>
         <ul>
-          <li *ngFor="let pr of lastSourceBranchPrs">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName }})</li>
+          <li *ngFor="let pr of lastSourceBranchPrs">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{
+            pr.targetRefName }})</li>
         </ul>
       </div>
       <div *ngIf="lastAllPrs && lastAllPrs.length > 0">
         <strong>PRs obtenidos al consultar todo el repo:</strong>
         <ul>
-          <li *ngFor="let pr of lastAllPrs | slice:0:50">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{ pr.targetRefName }})</li>
+          <li *ngFor="let pr of lastAllPrs | slice:0:50">#{{ pr.pullRequestId }} — {{ pr.title }} (target: {{
+            pr.targetRefName }})</li>
         </ul>
         <div *ngIf="lastAllPrs.length > 50">... mostrando 50 de {{ lastAllPrs.length }} resultados</div>
       </div>
@@ -120,8 +139,9 @@
     ⚠️ {{ errorMessage }}
   </div>
 
-  <section class="results-grid" *ngIf="!loadingStates.analysis && (processedHUs.length > 0 || commitsWithoutHU.length > 0)">
-    
+  <section class="results-grid"
+    *ngIf="!loadingStates.analysis && (processedHUs.length > 0 || commitsWithoutHU.length > 0)">
+
     <div class="card result-card">
       <div class="card-header success">
         <h2>HUs Pendientes ({{ processedHUs.length }})</h2>
@@ -130,18 +150,18 @@
         <div *ngFor="let item of processedHUs" class="hu-item">
           <div class="hu-badge">{{ item.id }}</div>
           <div class="hu-details">
-          <small>Detectado en {{ item.prs?.length || 0 }} PR(s)</small>
-          
-          <div class="commit-tooltip">
-            <div *ngFor="let pr of item.prs" class="pr-row">
-              <strong>PR #{{ pr.pullRequestId }}:</strong> {{ pr.title }}
-              <br>
-              <span style="font-size: 0.8em; color: #666;">
-                Por: {{ pr.createdBy.displayName }}
-              </span>
+            <small>Detectado en {{ item.prs?.length || 0 }} PR(s)</small>
+
+            <div class="commit-tooltip">
+              <div *ngFor="let pr of item.prs" class="pr-row">
+                <strong>PR #{{ pr.pullRequestId }}:</strong> {{ pr.title }}
+                <br>
+                <span style="font-size: 0.8em; color: #666;">
+                  Por: {{ pr.createdBy.displayName }}
+                </span>
+              </div>
             </div>
           </div>
-        </div>
         </div>
       </div>
     </div>
@@ -153,14 +173,16 @@
       </div>
       <ul class="clean-list">
         <li *ngFor="let commit of commitsWithoutHU">
-          <span class="author">{{ commit.author.name }}</span>
+          <span class="author">{{ commit.author?.name || 'Sistema' }}</span>
           <p class="msg">{{ commit.comment }}</p>
         </li>
       </ul>
     </div>
   </section>
 
-  <div *ngIf="!loadingStates.analysis && processedHUs.length === 0 && commitsWithoutHU.length === 0 && selectedRepoName && sourceBranch" class="empty-state">
+  <div
+    *ngIf="!loadingStates.analysis && processedHUs.length === 0 && commitsWithoutHU.length === 0 && selectedRepoName && sourceBranch"
+    class="empty-state">
     ✅ No hay diferencias pendientes o todo está sincronizado.
   </div>
 </div>

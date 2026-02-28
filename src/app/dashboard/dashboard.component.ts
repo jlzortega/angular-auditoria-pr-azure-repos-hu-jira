@@ -61,6 +61,8 @@ export class DashboardComponent implements OnInit {
   lastAllPrs: AzurePullRequest[] = [];
   lastSourceCommits: GitCommit[] = [];
   lastTargetCommits: GitCommit[] = [];
+  sourceHusList: string[] = [];
+  targetHusList: string[] = [];
   lastSelection: { repo?: string; source?: string; target?: string } = {};
   // Strict verification mode: run per-HU searchText verification
   strictMode = false;
@@ -291,31 +293,20 @@ export class DashboardComponent implements OnInit {
     this.azureService.getCommitsDiff(repoIdentifier, sourceBranch, targetBranch)
       .pipe(
         switchMap((commits: GitCommit[]) => {
-          console.log(`2. Diferencia encontrada: ${commits.length} commits.`);
+          console.log(`2. Diferencia encontrada por diff: ${commits.length} commits.`);
 
-          if (!commits || commits.length === 0) {
-            // Si commitsBatch devuelve vacío, intentar listar commits directamente para diagnóstico
-            this.lastCommitIds = [];
-            return this.azureService.getCommitsForBranch(this.selectedRepoId, sourceBranch, 50).pipe(
-              map((srcCommits: GitCommit[]) => {
-                this.lastSourceCommits = srcCommits || [];
-                return { commits: [], commitIds: [] as string[] };
-              }),
-              catchError(err => {
-                console.warn('Error al listar commits de la rama source para diagnóstico:', err);
-                return of({ commits: [], commitIds: [] as string[] });
-              })
-            );
-          }
-
-          const commitIds = commits.map(c => c.commitId);
-          this.lastCommitIds = commitIds;
-
-          // Obtener PRs asociados a esos commits (batch query)
-          return this.azureService.getPrsByCommitIds(this.selectedRepoId, commitIds).pipe(
-            map(prs => ({ commits, commitIds, prs: prs || [] })),
-            catchError(() => of({ commits, commitIds, prs: [] as AzurePullRequest[] }))
-          );
+          return forkJoin({
+            diffCommits: of(commits),
+            sourceCommits: this.azureService.getCommitsForBranch(this.selectedRepoId, sourceBranch, 50).pipe(catchError(() => of([]))),
+            // PRs asociados a los commits del diff
+            diffPrs: commits.length > 0 ? this.azureService.getPrsByCommitIds(this.selectedRepoId, commits.map(c => c.commitId)) : of([]),
+            // PRs que fueron terminados HACIA la rama origen (aquí es donde suelen estar las HUs)
+            sourceMergedPrs: this.azureService.getPullRequestsForTarget(this.selectedRepoId, sourceBranch, 200).pipe(catchError(() => of([]))),
+            // PRs que vienen DESDE la rama origen (activos)
+            sourceActivePrs: this.azureService.getPrsBySourceBranch(this.selectedRepoId, sourceBranch).pipe(catchError(() => of([]))),
+            // ÚLTIMO RECURSO: Buscar TODOS los PRs del repositorio (últimos 100)
+            repoPullRequests: this.azureService.getAllPullRequests(this.selectedRepoId).pipe(catchError(() => of([])))
+          });
         }),
         finalize(() => {
           console.log('🏁 Finalizando proceso (quitando loader).');
@@ -328,120 +319,120 @@ export class DashboardComponent implements OnInit {
           return of({ commits: [], commitIds: [], prs: [], commitDetails: [] });
         })
       )
-      .subscribe(async (payload: any) => {
-        const commits: GitCommit[] = payload.commits || [];
-        const commitIds: string[] = payload.commitIds || [];
-        const prs: AzurePullRequest[] = payload.prs || [];
-        const sourceBranchLocal = payload.sourceBranch || sourceBranch;
-        const targetBranchLocal = payload.targetBranch || targetBranch;
+      .subscribe(async (results: any) => {
+        if (!results) return;
 
-        console.log('3. PRs asociados a commits (fallback):', prs.length);
-        // Tighten PR selection: prefer PRs whose source or target branch matches the sourceBranch
-        const filteredPrs = (prs || []).filter(pr => {
-          if (!pr) return false;
-          const src = (pr.sourceRefName || '').replace('refs/heads/', '');
-          const tgt = (pr.targetRefName || '').replace('refs/heads/', '');
-          const status = (pr as any).status || (pr as any).state || '';
-          const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';
-          // Include PRs whose source is the sourceBranch (they were opened from source),
-          // or PRs that are completed (to be considered for exclusion later).
-          return src === sourceBranchLocal || isCompleted || tgt === sourceBranchLocal;
+        const { diffCommits, sourceCommits, diffPrs, sourceMergedPrs, sourceActivePrs, repoPullRequests } = results;
+        const targetBranchLocal = this.targetBranch;
+
+        console.log('📦 Descubrimiento:', {
+          diff: (diffCommits || []).length,
+          repoWide: (repoPullRequests || []).length,
+          target: targetBranchLocal
         });
-        this.lastPrsReturned = filteredPrs;
 
-        // Construir conjunto de HUs presentes en origen (extraídos de PRs que fueron integradas en la rama ORIGEN o de los mensajes de commit)
         const sourceHus = new Set<string>();
+        const targetHus = new Set<string>();
 
-        // PRs asociados: solo considerar PRs cuyo target sea la rama origen (o PRs completados)
-        (this.lastPrsReturned || []).forEach(pr => {
-          const target = (pr.targetRefName || '').replace('refs/heads/', '');
-          const status = (pr as any).status || (pr as any).state || '';
-          const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';
-          if (target === sourceBranchLocal || isCompleted) {
-            const text = ((pr.title || '') + ' ' + (pr.description || '')).toUpperCase();
-            const matches = this.getHuMatchesFromText(text);
-            if (matches && matches.length) matches.forEach(m => sourceHus.add(m));
+        // 1. Clasificar Pull Requests del Repositorio (Modo Inteligente)
+        (repoPullRequests || []).forEach((pr: AzurePullRequest) => {
+          const status = ((pr as any).status || '').toLowerCase();
+          const targetBranchName = (pr.targetRefName || '').replace('refs/heads/', '');
+          const matches = this.getHuMatchesFromText(((pr.title || '') + ' ' + (pr.description || '')).toUpperCase());
+
+          if (status === 'completed' || status === 'merged') {
+            if (targetBranchName === targetBranchLocal) {
+              // Si ya se completó hacia el destino final (Master), se marca como integrada
+              matches.forEach(m => targetHus.add(m));
+            } else if (targetBranchName === this.sourceBranch) {
+              // Si llegó al origen (QA), pero NO al destino final, entonces está pendiente de pasar a Master
+              matches.forEach(m => sourceHus.add(m));
+            }
+          } else if (status === 'active' && targetBranchName === targetBranchLocal) {
+            // PR activa directamente hacia el destino final
+            matches.forEach(m => sourceHus.add(m));
           }
         });
 
-        // Mensajes de commits: extraer HUs (disponibles en la lista original de commits)
-        (commits || []).forEach(c => {
-          if (!c) return;
-          const text = (c.comment || '').toUpperCase();
-          const matches = this.getHuMatchesFromText(text);
-          if (matches && matches.length) matches.forEach(m => sourceHus.add(m));
-        });
+        // 2. Extraer de Pull Requests de descubrimiento
+        const discoveryPrs = [...(diffPrs || []), ...(sourceMergedPrs || []), ...(sourceActivePrs || [])];
+        discoveryPrs.forEach(pr => {
+          if (!pr) return;
+          const status = ((pr as any).status || '').toLowerCase();
+          const matches = this.getHuMatchesFromText(((pr.title || '') + ' ' + (pr.description || '')).toUpperCase());
 
-        console.log('HUs detectadas en ORIGEN (pre-exclusión):', Array.from(sourceHus));
-
-        // Ahora obtener HUs presentes en target (PRs completados targeting targetBranch + commits in target branch)
-        try {
-          const [targetPrs, targetCommits] = await firstValueFrom(forkJoin([
-            this.azureService.getPullRequestsForTarget(this.selectedRepoId, targetBranchLocal).pipe(catchError(() => of([] as AzurePullRequest[]))),
-            this.azureService.getCommitsForBranch(this.selectedRepoId, targetBranchLocal, 500).pipe(catchError(() => of([] as GitCommit[]))).pipe(map((tc: GitCommit[]) => { this.lastTargetCommits = tc || []; return tc; }))
-          ]));
-
-          this.lastTargetPrs = targetPrs || [];
-
-          const targetHus = new Set<string>();
-          (targetPrs || []).forEach((tpr: AzurePullRequest) => {
-            const text = ((tpr.title || '') + ' ' + (tpr.description || '')).toUpperCase();
-            const matches = this.getHuMatchesFromText(text);
-            if (matches && matches.length) matches.forEach((m: string) => targetHus.add(m));
-          });
-          (targetCommits || []).forEach((tc: GitCommit) => {
-            const text = (tc.comment || '').toUpperCase();
-            const matches = this.getHuMatchesFromText(text);
-            if (matches && matches.length) matches.forEach((m: string) => targetHus.add(m));
-          });
-
-          console.log('HUs encontradas en TARGET (master):', Array.from(targetHus));
-
-          // Diferencia: sourceHus - targetHus
-          let finalHus = Array.from(sourceHus).filter(h => !targetHus.has(h));
-
-          // Si estamos en modo strict, por cada HU hacemos una búsqueda por texto para confirmar
-          if (this.strictMode && finalHus.length) {
-            try {
-              const confirmations = await Promise.all(finalHus.map(async (hu) => {
-                try {
-                  const prsMatch: AzurePullRequest[] = await firstValueFrom(this.azureService.getPrsBySearchText(this.selectedRepoId, hu).pipe(catchError(() => of([] as AzurePullRequest[]))));
-                  // Considerar PRs que ya fueron completados hacia target
-                  const foundInTarget = (prsMatch || []).some(p => {
-                    const target = (p.targetRefName || '').replace('refs/heads/', '');
-                    const status = (p as any).status || (p as any).state || '';
-                    const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';
-                    return (target === targetBranchLocal || isCompleted) && ((p.title || '') + ' ' + (p.description || '')).toUpperCase().includes(hu);
-                  });
-                  return { hu, foundInTarget };
-                } catch (e) { return { hu, foundInTarget: false }; }
-              }));
-              // Excluir las HUs confirmadas en target
-              finalHus = finalHus.filter(h => !confirmations.find(c => c.hu === h && c.foundInTarget));
-            } catch (e) {
-              console.warn('Strict verification failed, continuing with non-strict result', e);
+          if (status === 'active') {
+            matches.forEach(m => sourceHus.add(m));
+          } else if (status === 'completed' || status === 'merged') {
+            const target = (pr.targetRefName || '').replace('refs/heads/', '');
+            if (target === targetBranchLocal) {
+              matches.forEach(m => targetHus.add(m));
+            } else {
+              matches.forEach(m => sourceHus.add(m));
             }
           }
+        });
 
-          // Mapear a processedHUs con PRs que las contienen (filtrando prs anteriores)
+        // 3. Extraer de Commits Diferenciales
+        (diffCommits || []).forEach((c: GitCommit) => {
+          if (!c || !c.comment) return;
+          const matches = this.getHuMatchesFromText(c.comment.toUpperCase());
+          matches.forEach(m => sourceHus.add(m));
+        });
+
+        this.sourceHusList = Array.from(sourceHus).sort();
+        console.log('HUs detectadas en ORIGEN:', this.sourceHusList);
+
+        if (sourceHus.size === 0 && (diffCommits || []).length > 0) {
+          // Si hay commits pero no detectamos HUs, marcar esos commits para atención
+          this.commitsWithoutHU = (diffCommits || []).filter((c: GitCommit) => c && c.comment);
+        }
+
+        // 4. DEEP EXCLUSION
+        try {
+          const [tgtPrs, tgtCommits] = await firstValueFrom(forkJoin([
+            this.azureService.getPullRequestsForTarget(this.selectedRepoId, targetBranchLocal, 1000).pipe(catchError(() => of([]))),
+            this.azureService.getCommitsForBranch(this.selectedRepoId, targetBranchLocal, 1000).pipe(catchError(() => of([])))
+          ]));
+
+          this.lastTargetPrs = tgtPrs || [];
+          this.lastTargetCommits = tgtCommits || [];
+
+          (tgtPrs || []).forEach(tpr => {
+            const matches = this.getHuMatchesFromText(((tpr.title || '') + ' ' + (tpr.description || '')).toUpperCase());
+            matches.forEach(m => targetHus.add(m));
+          });
+
+          (tgtCommits || []).forEach(tc => {
+            if (!tc || !tc.comment) return;
+            const matches = this.getHuMatchesFromText(tc.comment.toUpperCase());
+            matches.forEach(m => targetHus.add(m));
+          });
+
+          this.targetHusList = Array.from(targetHus).sort();
+          console.log('HUs integradas en TARGET:', this.targetHusList);
+
+          // 5. FILTRADO FINAL
+          let finalHus = Array.from(sourceHus).filter(h => !targetHus.has(h));
+          console.log(`📊 Análisis Final: ${finalHus.length} pendientes de ${sourceHus.size} encontradas.`);
+
+          const uniquePrs = Array.from(new Map(discoveryPrs.filter(p => p?.pullRequestId).map(p => [p.pullRequestId, p])).values());
+          this.lastPrsReturned = uniquePrs;
           const huMap = new Map<string, AzurePullRequest[]>();
-          finalHus.forEach(h => huMap.set(h, []));
-          (prs || []).forEach(pr => {
-            const text = ((pr.title || '') + ' ' + (pr.description || '')).toUpperCase();
-            const matches = this.getHuMatchesFromText(text) || [];
-            matches.forEach((m: string) => {
-              const key = m;
-              if (huMap.has(key)) {
-                huMap.get(key)?.push(pr);
-              }
+
+          finalHus.forEach(h => {
+            const prsWithHu = uniquePrs.filter(pr => {
+              const text = ((pr.title || '') + ' ' + (pr.description || '')).toUpperCase();
+              return text.includes(h);
             });
+            huMap.set(h, prsWithHu);
           });
 
           this.processedHUs = Array.from(huMap.entries()).map(([id, prs]) => ({ id, prs })).sort((a, b) => a.id.localeCompare(b.id));
-          console.log('HUs finales pendientes de pasar a target:', this.processedHUs);
           this.cdr.detectChanges();
+
         } catch (err) {
-          console.warn('Error al obtener PRs/commits del target para exclusión:', err);
+          console.error('Error en análisis:', err);
           this.processedHUs = Array.from(sourceHus).map(id => ({ id, prs: [] }));
           this.cdr.detectChanges();
         }
@@ -449,103 +440,14 @@ export class DashboardComponent implements OnInit {
   }
   private buildExactHuRegex(): RegExp {
     const src = (environment.huRegex && (environment.huRegex as RegExp).source) ? (environment.huRegex as RegExp).source : 'JURP01-[A-Z0-9]+';
-    return new RegExp('\\b' + src + '\\b', 'g');
+    // Quitamos los límites \b por ahora para ser más flexibles (algunos Jira keys vienen pegados a caracteres)
+    return new RegExp(src, 'g');
   }
 
   private getHuMatchesFromText(text: string): string[] {
     if (!text) return [];
     const rx = this.buildExactHuRegex();
     const matches = text.match(rx) || [];
-    return matches.map(m => m.trim());
-  }
-  private analyzePullRequests(prs: AzurePullRequest[]) {
-    // Si llegó null o undefined
-    if (!prs) prs = [];
-
-    // Filtrar PRs a los más relevantes: preferir PRs completados o aquellos cuyo target sea la rama origen seleccionada.
-    prs = prs.filter(pr => {
-      if (!pr) return false;
-      const target = (pr.targetRefName || '').toLowerCase();
-      const sourceLower = (this.sourceBranch || '').toLowerCase();
-      const matchesTarget = target.endsWith('/' + sourceLower) || target === `refs/heads/${sourceLower}` || target.endsWith(sourceLower);
-      const status = (pr as any).status || (pr as any).state || '';
-      const isCompleted = typeof status === 'string' && status.toLowerCase() === 'completed';
-      return matchesTarget || isCompleted;
-    });
-
-    const huMap = new Map<string, AzurePullRequest[]>();
-
-    prs.forEach(pr => {
-      // 🛡️ Protección contra nulos
-      const title = pr.title || '';
-      const desc = pr.description || '';
-      const fullText = (title + ' ' + desc).toUpperCase();
-
-      console.log('PR:', pr.pullRequestId, 'title:', title);
-
-      const matches = this.getHuMatchesFromText(fullText);
-
-      if (matches && matches.length) {
-        const uniqueMatches = [...new Set(matches)];
-        uniqueMatches.forEach(hu => {
-          const cleanHu = hu;
-          if (!huMap.has(cleanHu)) {
-            huMap.set(cleanHu, []);
-          }
-          huMap.get(cleanHu)?.push(pr);
-        });
-      }
-    });
-
-    this.processedHUs = Array.from(huMap.entries())
-      .map(([id, prs]) => ({ id, prs }))
-      .sort((a, b) => a.id.localeCompare(b.id));
-
-    console.log('HUs procesadas desde PRs:', this.processedHUs);
-
-    // Filtrar HUs que YA están integradas en la rama destino (targetBranch)
-    if (this.targetBranch) {
-      this.azureService.getPullRequestsForTarget(this.selectedRepoId, this.targetBranch).subscribe({
-        next: (targetPrs) => {
-          this.lastTargetPrs = targetPrs;
-          // Construimos un set de HUs que ya aparecen en PRs cuyo target es la rama destino
-          const presentInTarget = new Set<string>();
-          targetPrs.forEach((tpr: AzurePullRequest) => {
-            const text = ((tpr.title || '') + ' ' + (tpr.description || '')).toUpperCase();
-            const matches = this.getHuMatchesFromText(text);
-            if (matches && matches.length) matches.forEach(m => presentInTarget.add(m));
-          });
-
-          // Además, inspeccionar los commits de la rama target para capturar HUs que pudieron llegar sin PRs o con títulos diferentes
-          this.azureService.getCommitsForBranch(this.selectedRepoId, this.targetBranch, 500).subscribe({
-            next: (commitsInTarget) => {
-              (commitsInTarget || []).forEach(c => {
-                const text = (c.comment || '').toUpperCase();
-                const matches = this.getHuMatchesFromText(text);
-                if (matches && matches.length) matches.forEach(m => presentInTarget.add(m));
-              });
-
-              // Excluir HUs ya presentes en target (PRs o commits)
-              this.processedHUs = this.processedHUs.filter(h => !presentInTarget.has(h.id));
-              console.log('HUs después de excluir las ya integradas en', this.targetBranch, ':', this.processedHUs);
-              this.cdr.detectChanges();
-            },
-            error: (err) => {
-              console.warn('No se pudo obtener commits de la rama target para filtrar HUs:', err);
-              // Si falla obtener commits, al menos excluir según PRs
-              this.processedHUs = this.processedHUs.filter(h => !presentInTarget.has(h.id));
-              this.cdr.detectChanges();
-            }
-          });
-        },
-        error: (err) => {
-          console.warn('No se pudo obtener PRs del target para filtrar HUs:', err);
-          this.cdr.detectChanges();
-        }
-      });
-    } else {
-      // Si no hay targetBranch seleccionado, solo refrescamos
-      this.cdr.detectChanges();
-    }
+    return Array.from(new Set(matches.map(m => m.trim().toUpperCase())));
   }
 }
