@@ -297,15 +297,15 @@ export class DashboardComponent implements OnInit {
 
           return forkJoin({
             diffCommits: of(commits),
-            sourceCommits: this.azureService.getCommitsForBranch(this.selectedRepoId, sourceBranch, 50).pipe(catchError(() => of([]))),
+            sourceCommits: this.azureService.getCommitsForBranch(this.selectedRepoId, sourceBranch, 200).pipe(catchError(() => of([]))),
             // PRs asociados a los commits del diff
             diffPrs: commits.length > 0 ? this.azureService.getPrsByCommitIds(this.selectedRepoId, commits.map(c => c.commitId)) : of([]),
             // PRs que fueron terminados HACIA la rama origen (aquí es donde suelen estar las HUs)
-            sourceMergedPrs: this.azureService.getPullRequestsForTarget(this.selectedRepoId, sourceBranch, 200).pipe(catchError(() => of([]))),
+            sourceMergedPrs: this.azureService.getPullRequestsForTarget(this.selectedRepoId, sourceBranch, 500).pipe(catchError(() => of([]))),
             // PRs que vienen DESDE la rama origen (activos)
             sourceActivePrs: this.azureService.getPrsBySourceBranch(this.selectedRepoId, sourceBranch).pipe(catchError(() => of([]))),
-            // ÚLTIMO RECURSO: Buscar TODOS los PRs del repositorio (últimos 100)
-            repoPullRequests: this.azureService.getAllPullRequests(this.selectedRepoId).pipe(catchError(() => of([])))
+            // ÚLTIMO RECURSO: Buscar TODOS los PRs del repositorio (últimos 500)
+            repoPullRequests: this.azureService.getAllPullRequests(this.selectedRepoId, 500).pipe(catchError(() => of([])))
           });
         }),
         finalize(() => {
@@ -340,15 +340,19 @@ export class DashboardComponent implements OnInit {
           const targetBranchName = (pr.targetRefName || '').replace('refs/heads/', '');
           const matches = this.getHuMatchesFromText(((pr.title || '') + ' ' + (pr.description || '')).toUpperCase());
 
+          // Case-insensitive comparisons for robustness
+          const isTarget = targetBranchName.toLowerCase() === targetBranchLocal.toLowerCase();
+          const isSource = targetBranchName.toLowerCase() === this.sourceBranch.toLowerCase();
+
           if (status === 'completed' || status === 'merged') {
-            if (targetBranchName === targetBranchLocal) {
+            if (isTarget) {
               // Si ya se completó hacia el destino final (Master), se marca como integrada
               matches.forEach(m => targetHus.add(m));
-            } else if (targetBranchName === this.sourceBranch) {
+            } else if (isSource) {
               // Si llegó al origen (QA), pero NO al destino final, entonces está pendiente de pasar a Master
               matches.forEach(m => sourceHus.add(m));
             }
-          } else if (status === 'active' && targetBranchName === targetBranchLocal) {
+          } else if (status === 'active' && isTarget) {
             // PR activa directamente hacia el destino final
             matches.forEach(m => sourceHus.add(m));
           }
@@ -364,8 +368,8 @@ export class DashboardComponent implements OnInit {
           if (status === 'active') {
             matches.forEach(m => sourceHus.add(m));
           } else if (status === 'completed' || status === 'merged') {
-            const target = (pr.targetRefName || '').replace('refs/heads/', '');
-            if (target === targetBranchLocal) {
+            const target = (pr.targetRefName || '').replace('refs/heads/', '').toLowerCase();
+            if (target === targetBranchLocal.toLowerCase()) {
               matches.forEach(m => targetHus.add(m));
             } else {
               matches.forEach(m => sourceHus.add(m));
