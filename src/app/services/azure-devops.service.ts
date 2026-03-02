@@ -210,7 +210,7 @@ export class AzureDevopsService {
     if (!commitIds || commitIds.length === 0) return of([]);
 
     const org = environment.azure.organization;
-    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(repoName);
+    const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(repoName);
     const baseApi = isGuid ? `/${org}/_apis/git/repositories` : this.apiUrl;
     const url = `${baseApi}/${encodeURIComponent(repoName)}/pullRequestQuery?${this.apiVersion}`;
 

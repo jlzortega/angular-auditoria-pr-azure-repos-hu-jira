@@ -8,9 +8,11 @@ import { MatInputModule } from '@angular/material/input';
 import { MatAutocompleteModule } from '@angular/material/autocomplete';
 
 import { AzureDevopsService } from '../services/azure-devops.service';
+import { JiraService } from '../services/jira.service';
+import { ConfigService, AppConfig } from '../services/config.service';
 import { environment } from '../../environments/environment';
 import { GitRepository, GitCommit, HuResult, AzurePullRequest } from '../models/azure.models';
-import { forkJoin, switchMap, of, finalize, catchError, Subject, map, firstValueFrom } from 'rxjs';
+import { forkJoin, switchMap, of, finalize, catchError, Subject, map, firstValueFrom, from } from 'rxjs';
 
 @Component({
   selector: 'app-dashboard',
@@ -75,13 +77,47 @@ export class DashboardComponent implements OnInit {
   };
   errorMessage = '';
 
+  // Session Settings
+  showSettings = false;
+  sessionConfig: AppConfig = {
+    azurePat: '',
+    jiraUrl: '',
+    jiraEmail: '',
+    jiraToken: ''
+  };
+
+  // Detailed Diagnostics for Excluded Items
+  excludedItemsDiagnostics: { id: string, reason: string }[] = [];
+
   constructor(
     private azureService: AzureDevopsService,
-    private cdr: ChangeDetectorRef // 👈 2. Inyectar
-  ) { }
+    private jiraService: JiraService,
+    private configService: ConfigService,
+    private cdr: ChangeDetectorRef
+  ) {
+    // Load existing session config if available
+    const cfg = this.configService.getConfig();
+    if (cfg) {
+      this.sessionConfig = { ...cfg };
+    }
+  }
+
+  saveSettings() {
+    this.configService.saveConfig(this.sessionConfig);
+    this.showSettings = false;
+    this.loadRepositories(); // Reload to apply new keys
+    console.log('✅ Configuración de sesión guardada.');
+  }
 
   ngOnInit() {
-    this.loadRepositories();
+    // 1. Verificar configuración antes de cargar nada
+    if (!this.configService.isConfigured()) {
+      this.showSettings = true;
+      this.loadingStates.repos = false; // Detener loader inicial
+      console.warn('⚠️ Aplicación no configurada. Mostrando ajustes.');
+    } else {
+      this.loadRepositories();
+    }
 
     // set up reactive listeners for Material autocomplete
     this.repoControl.valueChanges.subscribe(q => {
@@ -126,6 +162,12 @@ export class DashboardComponent implements OnInit {
   }
 
   loadRepositories() {
+    if (!this.configService.isConfigured()) {
+      this.errorMessage = 'Por favor, configura tus credenciales de Azure y Jira para comenzar.';
+      this.showSettings = true;
+      return;
+    }
+    this.errorMessage = '';
     this.loadingStates.repos = true;
     this.azureService.getRepositories().subscribe({
       next: (repos) => {
@@ -260,6 +302,11 @@ export class DashboardComponent implements OnInit {
   }
 
   compareBranches() {
+    if (!this.configService.isConfigured()) {
+      this.errorMessage = 'Por favor, configura tus credenciales en el icono de engrane (⚙️) antes de auditar.';
+      this.showSettings = true;
+      return;
+    }
     // Usar valores del FormControl para sincronizar con lo que ve el usuario
     const sourceBranch = (this.sourceControl.value || this.sourceBranch || '').toString().trim();
     const targetBranch = (this.targetControl.value || this.targetBranch || '').toString().trim();
@@ -416,15 +463,34 @@ export class DashboardComponent implements OnInit {
           this.targetHusList = Array.from(targetHus).sort();
           console.log('HUs integradas en TARGET:', this.targetHusList);
 
-          // 5. FILTRADO FINAL
-          let finalHus = Array.from(sourceHus).filter(h => !targetHus.has(h));
-          console.log(`📊 Análisis Final: ${finalHus.length} pendientes de ${sourceHus.size} encontradas.`);
+          // 5. VALIDACIÓN JIRA Y FILTRADO FINAL
+          this.excludedItemsDiagnostics = [];
+          const finalHus = Array.from(sourceHus).filter((h: string) => !targetHus.has(h));
+          const uniquePrs = Array.from(new Map(discoveryPrs.filter((p: AzurePullRequest) => p?.pullRequestId).map((p: AzurePullRequest) => [p.pullRequestId, p])).values());
 
-          const uniquePrs = Array.from(new Map(discoveryPrs.filter(p => p?.pullRequestId).map(p => [p.pullRequestId, p])).values());
+          const validatedHUs: string[] = [];
+
+          const validationPromises = finalHus.map(async (h: string) => {
+            // Siempre consultar Jira para estar 100% seguros del tipo de item
+            const type = await firstValueFrom(this.jiraService.getIssueType(h));
+
+            const validTypes = ['User Story', 'Story', 'Feature', 'Requirement'];
+            if (validTypes.includes(type)) {
+              validatedHUs.push(h);
+            } else {
+              console.log(`[Validation] Excluyendo ${h} porque es tipo: ${type}`);
+              this.excludedItemsDiagnostics.push({ id: h, reason: `Tipo Jira: ${type}` });
+            }
+          });
+
+          await Promise.all(validationPromises);
+
+          console.log(`📊 Análisis Final: ${validatedHUs.length} validadas de ${finalHus.length} candidatas.`);
+
           this.lastPrsReturned = uniquePrs;
           const huMap = new Map<string, AzurePullRequest[]>();
 
-          finalHus.forEach(h => {
+          validatedHUs.forEach(h => {
             const prsWithHu = uniquePrs.filter(pr => {
               const text = ((pr.title || '') + ' ' + (pr.description || '')).toUpperCase();
               return text.includes(h);

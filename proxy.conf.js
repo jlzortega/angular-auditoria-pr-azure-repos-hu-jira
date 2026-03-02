@@ -1,8 +1,14 @@
 module.exports = {
-  '/Soluciones-Corporativas': {
-    target: 'https://dev.azure.com',
-    changeOrigin: true,
+  '/jira-api/**': {
+    target: 'http://localhost:3001',
     secure: false,
+    changeOrigin: true,
+    logLevel: 'debug'
+  },
+  '/Soluciones-Corporativas/**': {
+    target: 'http://localhost:3001',
+    secure: false,
+    changeOrigin: true,
     logLevel: 'debug'
   }
 };
