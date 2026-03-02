@@ -23,6 +23,7 @@ export interface HuResult {
   id: string;
   commits?: GitCommit[]; // Lo hacemos opcional o lo quitamos
   prs?: AzurePullRequest[]; // Nueva propiedad
+  jiraDevStatus?: any; // Tier 3 diagnostic data
 }
 
 // ... tus interfaces anteriores (GitRepository, etc.)

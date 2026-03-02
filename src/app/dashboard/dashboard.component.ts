@@ -469,18 +469,49 @@ export class DashboardComponent implements OnInit {
           const uniquePrs = Array.from(new Map(discoveryPrs.filter((p: AzurePullRequest) => p?.pullRequestId).map((p: AzurePullRequest) => [p.pullRequestId, p])).values());
 
           const validatedHUs: string[] = [];
+          const devStatusMap = new Map<string, any>();
 
           const validationPromises = finalHus.map(async (h: string) => {
-            // Siempre consultar Jira para estar 100% seguros del tipo de item
-            const type = await firstValueFrom(this.jiraService.getIssueType(h));
+            // Tier 2: Consultar Jira Detalles (Tipo y Estado)
+            const details = await firstValueFrom(this.jiraService.getIssueDetails(h));
 
             const validTypes = ['User Story', 'Story', 'Feature', 'Requirement'];
-            if (validTypes.includes(type)) {
-              validatedHUs.push(h);
-            } else {
-              console.log(`[Validation] Excluyendo ${h} porque es tipo: ${type}`);
-              this.excludedItemsDiagnostics.push({ id: h, reason: `Tipo Jira: ${type}` });
+            if (!validTypes.includes(details.type)) {
+              console.log(`[Validation] Excluyendo ${h} porque es tipo: ${details.type}`);
+              this.excludedItemsDiagnostics.push({ id: h, reason: `Tipo Jira: ${details.type}` });
+              return;
             }
+
+            // Si ya está terminada en Jira, asumimos que se integró por una vía que Azure no encontró
+            const completedStatuses = ['DONE', 'PRODUCTION', 'CERRADO', 'TERMINADO', 'CERRADA'];
+
+            // Solo consideramos "TEST" como completado si la rama destino es QA
+            if (targetBranchLocal.toUpperCase() === 'QA' || targetBranchLocal.toUpperCase() === 'TEST') {
+              completedStatuses.push('TEST');
+            }
+
+            if (completedStatuses.includes(details.status.toUpperCase())) {
+              console.log(`[Validation] Excluyendo ${h} por Estado Jira: ${details.status} (Ya finalizado en ${targetBranchLocal})`);
+              this.excludedItemsDiagnostics.push({ id: h, reason: `Estado Jira: ${details.status} (Ya finalizado en ${targetBranchLocal})` });
+              return;
+            }
+
+            // Tier 3: Diagnostic Extraction (Dev-Status)
+            if (details.internalId) {
+              const devStatus = await firstValueFrom(this.jiraService.getIssueDevStatus(details.internalId));
+              if (devStatus.pullRequests && devStatus.pullRequests.length > 0) {
+                console.group(`[Tier 3] 🚨 Diagnóstico de PRs en Jira para ${h}`);
+                console.log(`Jira tiene registrado que esta HU tiene ${devStatus.pullRequests.length} PR(s) asociados.`);
+                devStatus.pullRequests.forEach((pr: any) => {
+                  console.log(`- PR: ${pr.id} | ${pr.name} | Estado: ${pr.status}`);
+                  // Nota: la estructura exacta puede variar según el server, pero estas keys son comunes
+                });
+                console.groupEnd();
+              }
+              devStatusMap.set(h, devStatus);
+            }
+
+            validatedHUs.push(h);
           });
 
           await Promise.all(validationPromises);
@@ -498,7 +529,11 @@ export class DashboardComponent implements OnInit {
             huMap.set(h, prsWithHu);
           });
 
-          this.processedHUs = Array.from(huMap.entries()).map(([id, prs]) => ({ id, prs })).sort((a, b) => a.id.localeCompare(b.id));
+          this.processedHUs = Array.from(huMap.entries()).map(([id, prs]) => ({
+            id,
+            prs,
+            jiraDevStatus: devStatusMap.get(id)
+          })).sort((a, b) => a.id.localeCompare(b.id));
           this.cdr.detectChanges();
 
         } catch (err) {

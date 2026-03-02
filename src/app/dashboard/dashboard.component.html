@@ -88,6 +88,7 @@
         [disabled]="loadingStates.analysis || loadingStates.branches || !sourceBranch || !targetBranch">
         {{ loadingStates.analysis ? 'Analizando...' : '🔍 Auditar Diferencias' }}
       </button>
+
       <label style="margin-left:12px; display:inline-flex; align-items:center">
         <input type="checkbox" [(ngModel)]="strictMode" style="margin-right:6px;" /> Strict mode
       </label>
@@ -204,6 +205,32 @@
                   Por: {{ pr.createdBy.displayName }}
                 </span>
               </div>
+
+              <!-- TIER 3: Visualización de Diagnóstico JIRA (Pull Requests almacenados en dev-status) -->
+              <div *ngIf="item.jiraDevStatus?.pullRequests?.length" class="jira-diagnostic-panel"
+                style="margin-top: 10px; padding: 10px; border-left: 3px solid #ff4081; background: #fff8fc; border-radius: 4px;">
+                <div style="font-weight: bold; color: #ff4081; font-size: 0.9em; margin-bottom: 5px;">
+                  🚨 Alerta Diagnóstica (Datos extraídos de Jira)
+                </div>
+                <div style="font-size: 0.85em; color: #333;">
+                  Azure no encontró esta HU en <strong>{{ targetBranch }}</strong>, y en Jira sigue marcada como
+                  pendiente, pero <strong>Jira tiene registrados {{ item.jiraDevStatus.pullRequests.length }} Pull
+                    Request(s) vinculados a su desarrollo</strong>.
+                  <br><br>
+                  Esto significa que existe código para esta HU, pero probablemente fue enviado a una <strong>rama
+                    distinta</strong> (ej. QA o Release) o el PR nunca se completó correctamente. Revisa los siguientes
+                  PRs para confirmar dónde quedó el código:
+                  <ul style="margin: 5px 0 0 15px; padding: 0;">
+                    <li *ngFor="let prDev of item.jiraDevStatus.pullRequests" style="margin-bottom: 3px;">
+                      <a *ngIf="prDev.url" [href]="prDev.url" target="_blank">{{ prDev.id }}</a>
+                      <span *ngIf="!prDev.url">{{ prDev.id }}</span>
+                      - {{ prDev.name }}
+                      <strong style="color: #666">({{ prDev.status }})</strong>
+                    </li>
+                  </ul>
+                </div>
+              </div>
+
             </div>
           </div>
         </div>

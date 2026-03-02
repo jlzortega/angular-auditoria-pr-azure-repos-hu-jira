@@ -334,10 +334,11 @@ export class AzureDevopsService {
   }
 
   /**
-   * Obtener todos los PRs del repositorio (estado = all). Útil como último recurso diagnósticoy de búsqueda.
+   * Obtener todos los PRs del repositorio (estado = all). Útil como último recurso diagnóstico y de búsqueda.
    */
   getAllPullRequests(repoName: string, top: number = 200): Observable<AzurePullRequest[]> {
     const url = `${this.apiUrl}/${encodeURIComponent(repoName)}/pullrequests?searchCriteria.status=all&$top=${top}&${this.apiVersion}`;
+
     return this.http.get<any>(url).pipe(
       map(res => res || []),
       map(res => (res.value && Array.isArray(res.value) ? res.value : res))
