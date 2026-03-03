@@ -1,7 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpRequest, HttpHandler, HttpEvent, HttpInterceptor } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { environment } from '../../environments/environment';
 import { ConfigService } from '../services/config.service';
 
 @Injectable()
@@ -13,11 +12,12 @@ export class AuthInterceptor implements HttpInterceptor {
     const config = this.configService.getConfig();
 
     // 1. Azure DevOps
-    const org = environment.azure.organization;
-    const isAzureRequest = request.url.startsWith(`/${org}`) || request.url.includes('dev.azure.com');
+    const org = config?.azureOrg?.trim() || '';
+    // Accept requests that start with /{org} or contain dev.azure.com, or generic /<org-like-segment>/
+    const isAzureRequest = (org && request.url.startsWith(`/${org}`)) || request.url.includes('dev.azure.com') || /^\/[A-Za-z0-9_-]+\/[A-Za-z0-9_-]+\/_apis/.test(request.url);
 
     if (isAzureRequest) {
-      const pat = config?.azurePat || environment.azure.pat;
+      const pat = config?.azurePat || '';
       if (pat) {
         const authString = `:${pat}`;
         const authBase64 = btoa(authString);
@@ -35,8 +35,8 @@ export class AuthInterceptor implements HttpInterceptor {
 
     // 2. Jira (Proxy)
     if (request.url.includes('/jira-api')) {
-      const email = config?.jiraEmail || (environment as any).jira?.email || '';
-      const token = config?.jiraToken || (environment as any).jira?.token || '';
+      const email = config?.jiraEmail || '';
+      const token = config?.jiraToken || '';
 
       const authString = `${email}:${token}`;
       const authBase64 = btoa(authString);

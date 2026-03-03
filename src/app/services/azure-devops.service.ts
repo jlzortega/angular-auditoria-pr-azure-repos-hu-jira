@@ -3,20 +3,26 @@ import { HttpClient } from '@angular/common/http';
 import { map, Observable, forkJoin, of, catchError, switchMap, throwError, from } from 'rxjs';
 import { environment } from '../../environments/environment';
 import { GitRepository, GitCommit, AzurePullRequest } from '../models/azure.models';
+import { ConfigService } from './config.service';
 
 @Injectable({
   providedIn: 'root'
 })
 export class AzureDevopsService {
-  // Always use full Azure DevOps URL; the interceptor handles Authorization
-  private apiUrl: string = (() => {
-    const org = environment.azure.organization;
-    const proj = environment.azure.project;
-    return `/${org}/${proj}/_apis/git/repositories`;
-  })();
-  private apiVersion = `api-version=${environment.azure.apiVersion}`;
+  private get apiVersion(): string {
+    const cfg = this.configService.getConfig();
+    const v = cfg?.azureApiVersion?.trim() || '7.1';
+    return `api-version=${v}`;
+  }
 
-  constructor(private http: HttpClient) { }
+  private get apiUrl(): string {
+    const cfg = this.configService.getConfig();
+    const org = cfg?.azureOrg?.trim() || '';
+    const proj = cfg?.azureProject?.trim() || '';
+    return `/${org}/${proj}/_apis/git/repositories`;
+  }
+
+  constructor(private http: HttpClient, private configService: ConfigService) { }
 
   getRepositories(): Observable<GitRepository[]> {
     return this.http.get<any>(`${this.apiUrl}?${this.apiVersion}`).pipe(
@@ -143,8 +149,9 @@ export class AzureDevopsService {
 
     return from(this.resolveRepositoryId(repoIdentifier)).pipe(
       switchMap((resolved) => {
-        const org = environment.azure.organization;
-        const proj = environment.azure.project;
+        const cfg = this.configService.getConfig();
+        const org = cfg?.azureOrg?.trim() || '';
+        const proj = cfg?.azureProject?.trim() || '';
 
         // Construct the URL using the project and repository ID
         const url = `/${org}/${proj}/_apis/git/repositories/${resolved.id}/diffs/commits` +
@@ -209,7 +216,7 @@ export class AzureDevopsService {
   getPrsByCommitIds(repoName: string, commitIds: string[]): Observable<AzurePullRequest[]> {
     if (!commitIds || commitIds.length === 0) return of([]);
 
-    const org = environment.azure.organization;
+    const org = this.configService.getConfig()?.azureOrg?.trim() || '';
     const isGuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(repoName);
     const baseApi = isGuid ? `/${org}/_apis/git/repositories` : this.apiUrl;
     const url = `${baseApi}/${encodeURIComponent(repoName)}/pullRequestQuery?${this.apiVersion}`;

@@ -2,6 +2,9 @@ import { Injectable } from '@angular/core';
 
 export interface AppConfig {
     azurePat: string;
+    azureOrg: string;
+    azureProject: string;
+    azureApiVersion: string;
     jiraUrl: string;
     jiraEmail: string;
     jiraToken: string;

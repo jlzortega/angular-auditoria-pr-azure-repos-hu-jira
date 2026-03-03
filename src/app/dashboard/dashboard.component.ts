@@ -66,8 +66,7 @@ export class DashboardComponent implements OnInit {
   sourceHusList: string[] = [];
   targetHusList: string[] = [];
   lastSelection: { repo?: string; source?: string; target?: string } = {};
-  // Strict verification mode: run per-HU searchText verification
-  strictMode = false;
+  // Strict verification mode removed
 
   // Estados de UI
   loadingStates = {
@@ -81,6 +80,9 @@ export class DashboardComponent implements OnInit {
   showSettings = false;
   sessionConfig: AppConfig = {
     azurePat: '',
+    azureOrg: '',
+    azureProject: '',
+    azureApiVersion: '7.1',
     jiraUrl: '',
     jiraEmail: '',
     jiraToken: ''
@@ -193,6 +195,18 @@ export class DashboardComponent implements OnInit {
     this.repoControl.disable();
   }
 
+  private filterAllowedBranches(branches: string[]): string[] {
+    const allowedPrefixes = ['feature/', 'feat/', 'sprint/', 'team/', 'feature-', 'sprint-', 'team-'];
+    const exactMatches = ['develop', 'qa', 'master']; // lowercase for comparison
+
+    return branches.filter(branch => {
+      const lower = branch.toLowerCase();
+      if (exactMatches.includes(lower)) return true;
+      if (allowedPrefixes.some(p => lower.startsWith(p.toLowerCase()))) return true;
+      return false;
+    });
+  }
+
   async onRepoChange(repoName: string) {
     this.selectedRepoName = repoName;
     const found = this.repositories.find(r => r.name === repoName);
@@ -208,12 +222,12 @@ export class DashboardComponent implements OnInit {
     this.targetControl.disable();
 
     try {
-      const branches = await this.azureService.getBranches(this.selectedRepoId);
-      this.branches = branches;
+      const allBranches = await this.azureService.getBranches(this.selectedRepoId);
+      this.branches = this.filterAllowedBranches(allBranches);
       // inicializar sugerencias de ramas
       this.filteredBranchesSource = this.branches.slice(0, 50);
       this.filteredBranchesTarget = this.branches.slice(0, 50);
-      this.autoSelectBranches(branches);
+      this.autoSelectBranches(this.branches);
       this.loadingStates.branches = false;
       this.sourceControl.enable();
       this.targetControl.enable();
@@ -246,11 +260,11 @@ export class DashboardComponent implements OnInit {
     this.sourceControl.disable();
     this.targetControl.disable();
     try {
-      const branches = await this.azureService.getBranches(this.selectedRepoId);
-      this.branches = branches;
+      const allBranches = await this.azureService.getBranches(this.selectedRepoId);
+      this.branches = this.filterAllowedBranches(allBranches);
       this.filteredBranchesSource = this.branches.slice(0, 50);
       this.filteredBranchesTarget = this.branches.slice(0, 50);
-      this.autoSelectBranches(branches);
+      this.autoSelectBranches(this.branches);
       this.loadingStates.branches = false;
       this.sourceControl.enable();
       this.targetControl.enable();
@@ -355,11 +369,6 @@ export class DashboardComponent implements OnInit {
             repoPullRequests: this.azureService.getAllPullRequests(this.selectedRepoId, 500).pipe(catchError(() => of([])))
           });
         }),
-        finalize(() => {
-          console.log('🏁 Finalizando proceso (quitando loader).');
-          this.loadingStates.analysis = false;
-          this.cdr.detectChanges();
-        }),
         catchError(err => {
           console.error('❌ Error crítico en el flujo:', err);
           this.handleError('Fallo al analizar PRs/Commits', err);
@@ -367,7 +376,11 @@ export class DashboardComponent implements OnInit {
         })
       )
       .subscribe(async (results: any) => {
-        if (!results) return;
+        if (!results) {
+          this.loadingStates.analysis = false;
+          this.cdr.detectChanges();
+          return;
+        }
 
         const { diffCommits, sourceCommits, diffPrs, sourceMergedPrs, sourceActivePrs, repoPullRequests } = results;
         const targetBranchLocal = this.targetBranch;
@@ -539,13 +552,15 @@ export class DashboardComponent implements OnInit {
         } catch (err) {
           console.error('Error en análisis:', err);
           this.processedHUs = Array.from(sourceHus).map(id => ({ id, prs: [] }));
+        } finally {
+          console.log('🏁 Finalizando proceso (quitando loader).');
+          this.loadingStates.analysis = false;
           this.cdr.detectChanges();
         }
       });
   }
   private buildExactHuRegex(): RegExp {
     const src = (environment.huRegex && (environment.huRegex as RegExp).source) ? (environment.huRegex as RegExp).source : 'JURP01-[A-Z0-9]+';
-    // Quitamos los límites \b por ahora para ser más flexibles (algunos Jira keys vienen pegados a caracteres)
     return new RegExp(src, 'g');
   }
 
